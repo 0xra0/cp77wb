@@ -1,0 +1,14 @@
+{
+  "__parameters__": {
+    "name": "Generated Group",
+    "x": 0.0,
+    "y": 0.0,
+    "z": 0.0
+  },
+  "name": "${name}",
+  "modulePath": "modules/classes/editor/positionableGroup",
+  "pos": {"x": "${x}", "y": "${y}", "z": "${z}"},
+  "origin": {"x": "${x}", "y": "${y}", "z": "${z}"},
+  "rotation": {"roll": 0, "pitch": 0, "yaw": 0},
+  "childs": []
+}

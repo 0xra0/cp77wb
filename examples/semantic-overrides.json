@@ -1,0 +1,5 @@
+{
+  "overrides": [
+    {"asset": "#40238", "tags": ["hero_asset"], "styles": ["custom_style"]}
+  ]
+}

@@ -1,0 +1,6 @@
+{
+  "entries": [
+    {"asset": "#REPLACE_ME", "weight": 4, "name": "Common Stall"},
+    {"asset": "#REPLACE_ME_TOO", "weight": 1, "name": "Rare Stall"}
+  ]
+}

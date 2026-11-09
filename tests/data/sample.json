@@ -1,0 +1,74 @@
+{
+  "name": "Demo",
+  "modulePath": "modules/classes/editor/positionableGroup",
+  "headerOpen": true,
+  "propertyHeaderStates": {},
+  "visible": true,
+  "hiddenByParent": false,
+  "expandable": true,
+  "selected": false,
+  "isUsingSpawnables": true,
+  "transformExpanded": true,
+  "rotationRelative": false,
+  "scaleLocked": true,
+  "rotationLocked": false,
+  "randomizationSettings": {"probability": 0.5},
+  "pos": {"x": 10.0, "y": 20.0, "z": 30.0},
+  "origin": {"x": 10.0, "y": 20.0, "z": 30.0},
+  "rotation": {"roll": 0, "pitch": 0, "yaw": 0},
+  "childs": [
+    {
+      "name": "Outline",
+      "modulePath": "modules/classes/editor/positionableGroup",
+      "pos": {"x": 0, "y": 0, "z": 0},
+      "origin": {"x": 0, "y": 0, "z": 0},
+      "rotation": {"roll": 0, "pitch": 0, "yaw": 0},
+      "childs": [
+        {"name": "M1", "modulePath": "modules/classes/editor/spawnableElement", "pos": {"x": 0, "y": 0, "z": 0}, "childs": [], "spawnable": {"modulePath": "area/outlineMarker", "position": {"x": 0, "y": 0, "z": 0, "w": 0}, "rotation": {"roll": 0, "pitch": 0, "yaw": 0}, "height": 3, "nodeRef": ""}},
+        {"name": "M2", "modulePath": "modules/classes/editor/spawnableElement", "pos": {"x": 5, "y": 0, "z": 0}, "childs": [], "spawnable": {"modulePath": "area/outlineMarker", "position": {"x": 5, "y": 0, "z": 0, "w": 0}, "rotation": {"roll": 0, "pitch": 0, "yaw": 0}, "height": 3, "nodeRef": ""}},
+        {"name": "M3", "modulePath": "modules/classes/editor/spawnableElement", "pos": {"x": 0, "y": 5, "z": 0}, "childs": [], "spawnable": {"modulePath": "area/outlineMarker", "position": {"x": 0, "y": 5, "z": 0, "w": 0}, "rotation": {"roll": 0, "pitch": 0, "yaw": 0}, "height": 3, "nodeRef": ""}}
+      ]
+    },
+    {
+      "name": "Area",
+      "modulePath": "modules/classes/editor/spawnableElement",
+      "pos": {"x": 0, "y": 0, "z": 0},
+      "childs": [],
+      "spawnable": {
+        "modulePath": "area/triggerArea",
+        "position": {"x": 0, "y": 0, "z": 0, "w": 0},
+        "rotation": {"roll": 0, "pitch": 0, "yaw": 0},
+        "nodeRef": "$/demo/#area",
+        "outlinePath": "/Demo/Outline",
+        "markers": [],
+        "height": 0
+      }
+    },
+    {
+      "name": "DeviceA",
+      "modulePath": "modules/classes/editor/spawnableElement",
+      "pos": {"x": 1, "y": 2, "z": 3},
+      "childs": [],
+      "spawnable": {
+        "modulePath": "entity/device",
+        "position": {"x": 1, "y": 2, "z": 3, "w": 0},
+        "rotation": {"roll": 0, "pitch": 0, "yaw": 0},
+        "nodeRef": "$/demo/#a",
+        "deviceConnections": [{"deviceClassName": "gameDeviceComponentPS", "nodeRef": "$/demo/#b"}]
+      }
+    },
+    {
+      "name": "DeviceB",
+      "modulePath": "modules/classes/editor/spawnableElement",
+      "pos": {"x": 2, "y": 2, "z": 3},
+      "childs": [],
+      "spawnable": {
+        "modulePath": "entity/device",
+        "position": {"x": 2, "y": 2, "z": 3, "w": 0},
+        "rotation": {"roll": 0, "pitch": 0, "yaw": 0},
+        "nodeRef": "$/demo/#b",
+        "deviceConnections": []
+      }
+    }
+  ]
+}

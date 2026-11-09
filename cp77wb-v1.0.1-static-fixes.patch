@@ -1,0 +1,2301 @@
+diff -ruN '--exclude=__pycache__' '--exclude=*.pyc' cp77wb-v1.0.1-original/cp77wb/CHANGELOG.md cp77wb-v1.0.1-fixed/cp77wb/CHANGELOG.md
+--- cp77wb-v1.0.1-original/cp77wb/CHANGELOG.md	2026-09-15 15:40:57.000000000 +0000
++++ cp77wb-v1.0.1-fixed/cp77wb/CHANGELOG.md	2026-09-15 16:16:27.769668812 +0000
+@@ -2,6 +2,11 @@
+ 
+ ## 1.0.1
+ 
++- Fix the full static-analysis report from the real validation run: Ruff 476 findings, Pyright 54 type errors, and 5 C# compile errors are addressed in source rather than suppressed.
++- Expand multi-statement Python lines into normal statements and remove all Ruff-reported unused imports/variables.
++- Tighten Optional narrowing and public geometry parameter types for Pyright, including Sequence-based point/polygon APIs.
++- Fix the .NET worker top-level constant scope so `dotnet build` no longer hits CS8801.
++- Add strict `static-check.sh`; missing Ruff, Pyright, or dotnet is now a validation failure, and unit discovery explicitly uses `-s tests`.
+ - Add `worker-inspect` to expose discovered WolvenKit assemblies, serializer/writer method signatures and an API-profile SHA-256 fingerprint without requiring the conversion self-test to pass.
+ - Add `worker-doctor` to collect Python/platform information, `dotnet --info`, SDK/runtime inventories, worker inspect/preflight data and optionally produce a support ZIP.
+ - Add `worker-build --log-file` to preserve complete `dotnet publish` output on success or failure.
+diff -ruN '--exclude=__pycache__' '--exclude=*.pyc' cp77wb-v1.0.1-original/cp77wb/STATIC-FIXES.md cp77wb-v1.0.1-fixed/cp77wb/STATIC-FIXES.md
+--- cp77wb-v1.0.1-original/cp77wb/STATIC-FIXES.md	1970-01-01 00:00:00.000000000 +0000
++++ cp77wb-v1.0.1-fixed/cp77wb/STATIC-FIXES.md	2026-09-15 16:16:27.769839800 +0000
+@@ -0,0 +1,19 @@
++# v1.0.1 static-analysis fixes
++
++This corrected package addresses the failures reported by a real Ruff/Pyright/.NET run.
++
++## Fixed
++
++- Ruff: 476 reported findings (E701/E702/F401/F841) corrected in source.
++- Pyright: 54 reported type errors corrected by explicit Optional narrowing, accurate return types, and covariant Sequence APIs for geometry points.
++- C#: 5 CS8801 errors fixed by moving worker protocol/schema constants into `WkitBridge`; the two related unused-symbol warnings were removed.
++- Unit-test discovery in `static-check.sh` now explicitly uses `python3 -m unittest discover -s tests -v`.
++- `static-check.sh` treats missing `ruff`, `pyright`, or `dotnet` as a failed/incomplete validation instead of silently passing.
++
++## Run the authoritative check
++
++```bash
++./static-check.sh .
++```
++
++A successful run requires all requested tools to be installed and returns exit status 0 only when every check passes.
+diff -ruN '--exclude=__pycache__' '--exclude=*.pyc' cp77wb-v1.0.1-original/cp77wb/cp77wb/assets.py cp77wb-v1.0.1-fixed/cp77wb/cp77wb/assets.py
+--- cp77wb-v1.0.1-original/cp77wb/cp77wb/assets.py	2026-09-15 09:45:52.000000000 +0000
++++ cp77wb-v1.0.1-fixed/cp77wb/cp77wb/assets.py	2026-09-15 16:11:32.746202147 +0000
+@@ -7,7 +7,7 @@
+ import time
+ from dataclasses import asdict, dataclass
+ from pathlib import Path
+-from typing import Any, Iterable, Iterator
++from typing import Any, Iterator
+ 
+ from .errors import Cp77wbError
+ 
+diff -ruN '--exclude=__pycache__' '--exclude=*.pyc' cp77wb-v1.0.1-original/cp77wb/cp77wb/build.py cp77wb-v1.0.1-fixed/cp77wb/cp77wb/build.py
+--- cp77wb-v1.0.1-original/cp77wb/cp77wb/build.py	2026-09-15 15:37:39.000000000 +0000
++++ cp77wb-v1.0.1-fixed/cp77wb/cp77wb/build.py	2026-09-15 16:11:32.746420928 +0000
+@@ -6,12 +6,11 @@
+ import re
+ import shutil
+ import subprocess
+-import tempfile
+ import time
+ import zipfile
+ from dataclasses import dataclass, asdict
+ from pathlib import Path
+-from typing import Any, Iterable
++from typing import Any
+ from xml.sax.saxutils import escape as xml_escape
+ 
+ EXPORT_IMPORT_VERSION = "1.0.4"
+@@ -69,7 +68,8 @@
+     for si, sector in enumerate(sectors):
+         spath = f"$.sectors[{si}]"
+         if not isinstance(sector, dict):
+-            issues.append(ExportIssue("error", "invalid-sector", "Sector must be an object", spath)); continue
++            issues.append(ExportIssue("error", "invalid-sector", "Sector must be an object", spath))
++            continue
+         sname = sector.get("name")
+         if not isinstance(sname, str) or not sname:
+             issues.append(ExportIssue("error", "missing-sector-name", "Sector requires name", spath+".name"))
+@@ -79,7 +79,8 @@
+             sector_names.add(sname)
+         nodes = sector.get("nodes")
+         if not isinstance(nodes, list):
+-            issues.append(ExportIssue("error", "invalid-nodes", "Sector nodes must be an array", spath+".nodes")); continue
++            issues.append(ExportIssue("error", "invalid-nodes", "Sector nodes must be an array", spath+".nodes"))
++            continue
+         total_nodes += len(nodes)
+         variants = sector.get("variantIndices", [0])
+         if not isinstance(variants, list) or not variants or variants[0] != 0:
+@@ -91,11 +92,13 @@
+         for ni, node in enumerate(nodes):
+             npath = f"{spath}.nodes[{ni}]"
+             if not isinstance(node, dict):
+-                issues.append(ExportIssue("error", "invalid-node", "Node must be an object", npath)); continue
++                issues.append(ExportIssue("error", "invalid-node", "Node must be an object", npath))
++                continue
+             for key in ("type", "position", "rotation", "scale", "data"):
+                 if key not in node:
+                     issues.append(ExportIssue("error", f"missing-node-{key}", f"Node missing required field {key}", npath+"."+key))
+-            ntype = str(node.get("type", "<missing>")); node_types[ntype] = node_types.get(ntype, 0) + 1
++            ntype = str(node.get("type", "<missing>"))
++            node_types[ntype] = node_types.get(ntype, 0) + 1
+             nr = node.get("nodeRef")
+             if isinstance(nr, str) and nr:
+                 if nr in node_refs:
+@@ -105,8 +108,12 @@
+ 
+     devices = data.get("devices", {})
+     ps_entries = data.get("psEntries", {})
+-    if not isinstance(devices, dict): issues.append(ExportIssue("error", "invalid-devices", "devices must be an object", "$.devices")); devices = {}
+-    if not isinstance(ps_entries, dict): issues.append(ExportIssue("error", "invalid-psentries", "psEntries must be an object", "$.psEntries")); ps_entries = {}
++    if not isinstance(devices, dict):
++        issues.append(ExportIssue("error", "invalid-devices", "devices must be an object", "$.devices"))
++        devices = {}
++    if not isinstance(ps_entries, dict):
++        issues.append(ExportIssue("error", "invalid-psentries", "psEntries must be an object", "$.psEntries"))
++        ps_entries = {}
+     errors = sum(i.severity == "error" for i in issues)
+     warnings = sum(i.severity == "warning" for i in issues)
+     return {
+@@ -133,11 +140,15 @@
+ 
+ 
+ def _yaml_scalar(v: Any) -> str:
+-    if isinstance(v, bool): return "true" if v else "false"
+-    if v is None: return "null"
+-    if isinstance(v, (int, float)): return str(v)
++    if isinstance(v, bool):
++        return "true" if v else "false"
++    if v is None:
++        return "null"
++    if isinstance(v, (int, float)):
++        return str(v)
+     s = str(v)
+-    if re.fullmatch(r"[A-Za-z0-9_./\\-]+", s): return s
++    if re.fullmatch(r"[A-Za-z0-9_./\\-]+", s):
++        return s
+     return json.dumps(s, ensure_ascii=False)
+ 
+ 
+@@ -169,10 +180,14 @@
+     data = _read_json(export_file)
+     config = archive_xl_config(data)
+     fmt = format or ("yaml" if int(data.get("xlFormat", 0) or 0) == 1 else "json")
+-    out = Path(output); out.parent.mkdir(parents=True, exist_ok=True)
+-    if fmt == "yaml": out.write_text(_yaml_dump(config)+"\n", encoding="utf-8")
+-    elif fmt == "json": out.write_text(json.dumps(config, ensure_ascii=False, indent=2)+"\n", encoding="utf-8")
+-    else: raise ValueError("ArchiveXL format must be json or yaml")
++    out = Path(output)
++    out.parent.mkdir(parents=True, exist_ok=True)
++    if fmt == "yaml":
++        out.write_text(_yaml_dump(config)+"\n", encoding="utf-8")
++    elif fmt == "json":
++        out.write_text(json.dumps(config, ensure_ascii=False, indent=2)+"\n", encoding="utf-8")
++    else:
++        raise ValueError("ArchiveXL format must be json or yaml")
+     return {"output": str(out), "format": fmt, "config": config}
+ 
+ 
+@@ -196,7 +211,8 @@
+ 
+ 
+ def _find_importer(world_builder_root: str | Path | None) -> Path | None:
+-    if not world_builder_root: return None
++    if not world_builder_root:
++        return None
+     root = Path(world_builder_root)
+     candidates = [root/"script"/"import_object_spawner.wscript", root/"scripts"/"import_object_spawner.wscript"]
+     return next((p for p in candidates if p.is_file()), None)
+@@ -252,8 +268,10 @@
+         f"source/archive/{data['name']}/all.streamingblock",
+         *[f"source/archive/{data['name']}/sectors/{s.get('name','<unnamed>')}.streamingsector" for s in data.get("sectors", []) if isinstance(s, dict)],
+     ]
+-    if data.get("devices"): expected.append(f"source/archive/{data['name']}/custom_devices.devices")
+-    if data.get("psEntries"): expected.append(f"source/archive/{data['name']}/custom_devices.psrep")
++    if data.get("devices"):
++        expected.append(f"source/archive/{data['name']}/custom_devices.devices")
++    if data.get("psEntries"):
++        expected.append(f"source/archive/{data['name']}/custom_devices.psrep")
+ 
+     manifest = {
+         "schema": MANIFEST_SCHEMA, "cp77wbVersion": "1.0.1", "projectName": name, "exportName": data["name"],
+@@ -316,7 +334,8 @@
+     if importer:
+         text = importer.read_text(encoding="utf-8-sig")
+         for call in ("CreateInstanceAsJSON", "HashString", "JsonToCR2W", "SaveToProject", "SaveToResources"):
+-            if f"wkit.{call}" in text: importer_calls.append(call)
++            if f"wkit.{call}" in text:
++                importer_calls.append(call)
+     from .native import native_preflight
+     from .worker import worker_preflight
+     native = native_preflight(cli=cli_path) if cli_path else {"ready": False, "found": False, "reason": "WolvenKit CLI/cp77tools not found"}
+@@ -411,23 +430,28 @@
+         return result
+     before = set(out.glob("*.archive"))
+     proc = subprocess.run(cmd, stdout=subprocess.PIPE, stderr=subprocess.STDOUT, text=True, timeout=timeout, check=False)
+-    after = set(out.glob("*.archive")); new = sorted(after-before, key=lambda p: p.stat().st_mtime)
++    after = set(out.glob("*.archive"))
++    new = sorted(after-before, key=lambda p: p.stat().st_mtime)
+     if proc.returncode != 0:
+         raise RuntimeError(f"WolvenKit pack failed ({proc.returncode}):\n{proc.stdout[-6000:]}")
+     archive = new[-1] if new else (max(after, key=lambda p: p.stat().st_mtime) if after else None)
+     desired = out/f"{manifest['projectName']}.archive"
+     if archive and archive != desired:
+-        if desired.exists(): desired.unlink()
+-        archive.rename(desired); archive = desired
++        if desired.exists():
++            desired.unlink()
++        archive.rename(desired)
++        archive = desired
+     result.update({"ran": True, "exitCode": proc.returncode, "log": proc.stdout, "archive": str(archive) if archive else None})
+     return result
+ 
+ 
+ def _copy_resource_tree(resources: Path, layout: Path) -> list[str]:
+     produced: list[str] = []
+-    if not resources.is_dir(): return produced
++    if not resources.is_dir():
++        return produced
+     for src in resources.rglob("*"):
+-        if not src.is_file(): continue
++        if not src.is_file():
++            continue
+         rel = src.relative_to(resources)
+         # WKit's resource root has special handling for root ArchiveXL files.
+         if len(rel.parts) == 1 and src.suffix.lower() in {".xl"}:
+@@ -437,7 +461,9 @@
+         else:
+             # Keep unrecognized resources visible instead of silently installing to a guessed location.
+             dest = layout/"cp77wb-unmapped-resources"/rel
+-        dest.parent.mkdir(parents=True, exist_ok=True); shutil.copy2(src, dest); produced.append(str(dest.relative_to(layout)))
++        dest.parent.mkdir(parents=True, exist_ok=True)
++        shutil.copy2(src, dest)
++        produced.append(str(dest.relative_to(layout)))
+     return produced
+ 
+ 
+@@ -445,17 +471,22 @@
+                   clean: bool = True) -> dict[str, Any]:
+     root, manifest = load_manifest(workspace)
+     archive = Path(archive)
+-    if not archive.is_file(): raise FileNotFoundError(archive)
++    if not archive.is_file():
++        raise FileNotFoundError(archive)
+     layout = Path(output)
+-    if clean and layout.exists(): shutil.rmtree(layout)
+-    mod_dir = layout/"archive"/"pc"/"mod"; mod_dir.mkdir(parents=True, exist_ok=True)
+-    dest_archive = mod_dir/f"{manifest['projectName']}.archive"; shutil.copy2(archive, dest_archive)
++    if clean and layout.exists():
++        shutil.rmtree(layout)
++    mod_dir = layout/"archive"/"pc"/"mod"
++    mod_dir.mkdir(parents=True, exist_ok=True)
++    dest_archive = mod_dir/f"{manifest['projectName']}.archive"
++    shutil.copy2(archive, dest_archive)
+     produced = [str(dest_archive.relative_to(layout))]
+     produced += _copy_resource_tree(root/"source"/"resources", layout)
+     unmapped = [x for x in produced if x.startswith("cp77wb-unmapped-resources/")]
+     zip_path = None
+     if zip_output:
+-        zip_path = Path(zip_output); zip_path.parent.mkdir(parents=True, exist_ok=True)
++        zip_path = Path(zip_output)
++        zip_path.parent.mkdir(parents=True, exist_ok=True)
+         with zipfile.ZipFile(zip_path, "w", zipfile.ZIP_DEFLATED) as zf:
+             for f in sorted(layout.rglob("*")):
+                 if f.is_file() and not str(f.relative_to(layout)).startswith("cp77wb-unmapped-resources/"):
+@@ -465,19 +496,27 @@
+ 
+ 
+ def deploy_layout(layout: str | Path, game_root: str | Path, *, apply: bool = False, overwrite: bool = False) -> dict[str, Any]:
+-    layout = Path(layout).resolve(); game = Path(game_root).resolve()
+-    if not layout.is_dir(): raise FileNotFoundError(layout)
++    layout = Path(layout).resolve()
++    game = Path(game_root).resolve()
++    if not layout.is_dir():
++        raise FileNotFoundError(layout)
+     files = [p for p in layout.rglob("*") if p.is_file() and "cp77wb-unmapped-resources" not in p.parts]
+-    actions=[]; conflicts=[]
++    actions=[]
++    conflicts=[]
+     for src in files:
+-        rel=src.relative_to(layout); dest=game/rel
+-        exists=dest.exists(); same=False
++        rel=src.relative_to(layout)
++        dest=game/rel
++        exists=dest.exists()
++        same=False
+         if exists:
+-            try: same=hashlib.sha256(src.read_bytes()).digest()==hashlib.sha256(dest.read_bytes()).digest()
+-            except OSError: same=False
++            try:
++                same=hashlib.sha256(src.read_bytes()).digest()==hashlib.sha256(dest.read_bytes()).digest()
++            except OSError:
++                same=False
+         action={"source":str(src),"relative":rel.as_posix(),"destination":str(dest),"exists":exists,"same":same}
+         actions.append(action)
+-        if exists and not same: conflicts.append(rel.as_posix())
++        if exists and not same:
++            conflicts.append(rel.as_posix())
+     if conflicts and apply and not overwrite:
+         raise FileExistsError("Deployment would overwrite existing files: "+", ".join(conflicts[:10]))
+     backup_root=None
+@@ -485,10 +524,15 @@
+         if conflicts:
+             backup_root=game/".cp77wb-deploy-backups"/time.strftime("%Y%m%d-%H%M%S")
+         for a in actions:
+-            src=Path(a["source"]); dest=Path(a["destination"]); dest.parent.mkdir(parents=True, exist_ok=True)
++            src=Path(a["source"])
++            dest=Path(a["destination"])
++            dest.parent.mkdir(parents=True, exist_ok=True)
+             if dest.exists() and not a["same"] and backup_root:
+-                b=backup_root/a["relative"]; b.parent.mkdir(parents=True, exist_ok=True); shutil.copy2(dest,b)
+-            if not a["same"]: shutil.copy2(src,dest)
++                b=backup_root/a["relative"]
++                b.parent.mkdir(parents=True, exist_ok=True)
++                shutil.copy2(dest,b)
++            if not a["same"]:
++                shutil.copy2(src,dest)
+     return {"apply":apply,"files":len(actions),"conflicts":conflicts,"backup":str(backup_root) if backup_root else None,"actions":actions}
+ 
+ 
+@@ -497,15 +541,18 @@
+     issues: list[dict[str,str]]=[]
+     archives=list((root/"archive"/"pc"/"mod").glob("*.archive")) if (root/"archive"/"pc"/"mod").is_dir() else []
+     xls=list((root/"archive"/"pc"/"mod").glob("*.xl")) if (root/"archive"/"pc"/"mod").is_dir() else []
+-    if not archives: issues.append({"severity":"error","code":"no-archive","message":"No .archive under archive/pc/mod"})
+-    if (root/"cp77wb-unmapped-resources").exists(): issues.append({"severity":"warning","code":"unmapped-resources","message":"Package contains resources whose install location cp77wb would not guess"})
++    if not archives:
++        issues.append({"severity":"error","code":"no-archive","message":"No .archive under archive/pc/mod"})
++    if (root/"cp77wb-unmapped-resources").exists():
++        issues.append({"severity":"warning","code":"unmapped-resources","message":"Package contains resources whose install location cp77wb would not guess"})
+     conflicts=[]
+     if game_root:
+         game=Path(game_root)
+         for f in root.rglob("*"):
+             if f.is_file() and "cp77wb-unmapped-resources" not in f.parts:
+                 dest=game/f.relative_to(root)
+-                if dest.is_file() and hashlib.sha256(dest.read_bytes()).digest()!=hashlib.sha256(f.read_bytes()).digest(): conflicts.append(f.relative_to(root).as_posix())
++                if dest.is_file() and hashlib.sha256(dest.read_bytes()).digest()!=hashlib.sha256(f.read_bytes()).digest():
++                    conflicts.append(f.relative_to(root).as_posix())
+     errors=sum(x["severity"]=="error" for x in issues)
+     return {"layout":str(root),"archives":[str(x) for x in archives],"archiveXL":[str(x) for x in xls],"conflicts":conflicts,"issues":issues,"valid":errors==0}
+ 
+diff -ruN '--exclude=__pycache__' '--exclude=*.pyc' cp77wb-v1.0.1-original/cp77wb/cp77wb/cli.py cp77wb-v1.0.1-fixed/cp77wb/cp77wb/cli.py
+--- cp77wb-v1.0.1-original/cp77wb/cp77wb/cli.py	2026-09-15 15:38:54.000000000 +0000
++++ cp77wb-v1.0.1-fixed/cp77wb/cp77wb/cli.py	2026-09-15 16:10:27.863541572 +0000
+@@ -315,122 +315,245 @@
+     _add_write_args(rng)
+ 
+     room = sub.add_parser("generate-room", help="Generate a rectangular room shell from verified indexed assets")
+-    room.add_argument("file", type=Path); room.add_argument("parent")
+-    room.add_argument("--catalog", required=True, type=Path); room.add_argument("--wall-asset", required=True)
+-    room.add_argument("--floor-asset"); room.add_argument("--width", type=float, required=True); room.add_argument("--depth", type=float, required=True)
+-    room.add_argument("--segment", type=float, required=True); room.add_argument("--name", default="Generated Room")
+-    _add_xyz(room, defaults=(0.0, 0.0, 0.0), help_prefix="Origin on "); _add_write_args(room)
++    room.add_argument("file", type=Path)
++    room.add_argument("parent")
++    room.add_argument("--catalog", required=True, type=Path)
++    room.add_argument("--wall-asset", required=True)
++    room.add_argument("--floor-asset")
++    room.add_argument("--width", type=float, required=True)
++    room.add_argument("--depth", type=float, required=True)
++    room.add_argument("--segment", type=float, required=True)
++    room.add_argument("--name", default="Generated Room")
++    _add_xyz(room, defaults=(0.0, 0.0, 0.0), help_prefix="Origin on ")
++    _add_write_args(room)
+ 
+     corridor = sub.add_parser("generate-corridor", help="Generate a corridor shell from verified indexed assets")
+-    corridor.add_argument("file", type=Path); corridor.add_argument("parent")
+-    corridor.add_argument("--catalog", required=True, type=Path); corridor.add_argument("--wall-asset", required=True)
+-    corridor.add_argument("--floor-asset"); corridor.add_argument("--length", type=float, required=True); corridor.add_argument("--width", type=float, required=True)
+-    corridor.add_argument("--segment", type=float, required=True); corridor.add_argument("--name", default="Generated Corridor")
+-    _add_xyz(corridor, defaults=(0.0, 0.0, 0.0), help_prefix="Origin on "); _add_write_args(corridor)
++    corridor.add_argument("file", type=Path)
++    corridor.add_argument("parent")
++    corridor.add_argument("--catalog", required=True, type=Path)
++    corridor.add_argument("--wall-asset", required=True)
++    corridor.add_argument("--floor-asset")
++    corridor.add_argument("--length", type=float, required=True)
++    corridor.add_argument("--width", type=float, required=True)
++    corridor.add_argument("--segment", type=float, required=True)
++    corridor.add_argument("--name", default="Generated Corridor")
++    _add_xyz(corridor, defaults=(0.0, 0.0, 0.0), help_prefix="Origin on ")
++    _add_write_args(corridor)
+ 
+     market = sub.add_parser("generate-market", help="Generate a deterministic market grid from a weighted asset pool")
+-    market.add_argument("file", type=Path); market.add_argument("parent")
+-    market.add_argument("--catalog", required=True, type=Path); market.add_argument("--pool", required=True)
+-    market.add_argument("--rows", type=int, required=True); market.add_argument("--columns", type=int, required=True)
+-    market.add_argument("--spacing-x", type=float, required=True); market.add_argument("--spacing-y", type=float, required=True)
+-    market.add_argument("--seed", type=int, default=1); market.add_argument("--name", default="Generated Market")
+-    _add_xyz(market, defaults=(0.0, 0.0, 0.0), help_prefix="Origin on "); _add_write_args(market)
++    market.add_argument("file", type=Path)
++    market.add_argument("parent")
++    market.add_argument("--catalog", required=True, type=Path)
++    market.add_argument("--pool", required=True)
++    market.add_argument("--rows", type=int, required=True)
++    market.add_argument("--columns", type=int, required=True)
++    market.add_argument("--spacing-x", type=float, required=True)
++    market.add_argument("--spacing-y", type=float, required=True)
++    market.add_argument("--seed", type=int, default=1)
++    market.add_argument("--name", default="Generated Market")
++    _add_xyz(market, defaults=(0.0, 0.0, 0.0), help_prefix="Origin on ")
++    _add_write_args(market)
+ 
+     dconnect = sub.add_parser("device-connect", help="Connect two saved World Builder device nodes by NodeRef")
+-    dconnect.add_argument("file", type=Path); dconnect.add_argument("source"); dconnect.add_argument("target")
+-    dconnect.add_argument("--device-class-name"); dconnect.add_argument("--noderef-prefix", default="")
++    dconnect.add_argument("file", type=Path)
++    dconnect.add_argument("source")
++    dconnect.add_argument("target")
++    dconnect.add_argument("--device-class-name")
++    dconnect.add_argument("--noderef-prefix", default="")
+     _add_write_args(dconnect)
+ 
+     elevator = sub.add_parser("elevator-wire", help="Wire an existing elevator, terminals and markers; patches instance data when present")
+-    elevator.add_argument("file", type=Path); elevator.add_argument("elevator")
+-    elevator.add_argument("--terminal", action="append", required=True); elevator.add_argument("--marker", action="append", required=True)
++    elevator.add_argument("file", type=Path)
++    elevator.add_argument("elevator")
++    elevator.add_argument("--terminal", action="append", required=True)
++    elevator.add_argument("--marker", action="append", required=True)
+     elevator.add_argument("--floor-name", action="append", default=[])
+     elevator.add_argument("--terminal-class-name", default="ElevatorFloorTerminalControllerPS")
+     elevator.add_argument("--noderef-prefix", default="")
+     _add_write_args(elevator)
+ 
+     exinspect = sub.add_parser("export-inspect", help="Validate and summarize a World Builder *_exported.json before WolvenKit import")
+-    exinspect.add_argument("export_file", type=Path); exinspect.add_argument("--importer-version", default="1.0.4"); exinspect.add_argument("--json", action="store_true")
++    exinspect.add_argument("export_file", type=Path)
++    exinspect.add_argument("--importer-version", default="1.0.4")
++    exinspect.add_argument("--json", action="store_true")
+ 
+     xlgen = sub.add_parser("export-xl", help="Generate the ArchiveXL .xl configuration implied by a World Builder export")
+-    xlgen.add_argument("export_file", type=Path); xlgen.add_argument("output", type=Path); xlgen.add_argument("--format", choices=("json","yaml")); xlgen.add_argument("--json", action="store_true")
++    xlgen.add_argument("export_file", type=Path)
++    xlgen.add_argument("output", type=Path)
++    xlgen.add_argument("--format", choices=("json","yaml"))
++    xlgen.add_argument("--json", action="store_true")
+ 
+     bprep = sub.add_parser("build-prepare", help="Create a WolvenKit project/workspace around a World Builder export")
+-    bprep.add_argument("export_file", type=Path); bprep.add_argument("workspace", type=Path); bprep.add_argument("--world-builder-root", type=Path); bprep.add_argument("--project-name")
+-    bprep.add_argument("--author", default=""); bprep.add_argument("--project-version", default="1.0.0"); bprep.add_argument("--description", default="World Builder project prepared by cp77wb")
+-    bprep.add_argument("--force", action="store_true"); bprep.add_argument("--scaffold-tweak", action="store_true"); bprep.add_argument("--json", action="store_true")
++    bprep.add_argument("export_file", type=Path)
++    bprep.add_argument("workspace", type=Path)
++    bprep.add_argument("--world-builder-root", type=Path)
++    bprep.add_argument("--project-name")
++    bprep.add_argument("--author", default="")
++    bprep.add_argument("--project-version", default="1.0.0")
++    bprep.add_argument("--description", default="World Builder project prepared by cp77wb")
++    bprep.add_argument("--force", action="store_true")
++    bprep.add_argument("--scaffold-tweak", action="store_true")
++    bprep.add_argument("--json", action="store_true")
+ 
+     bstatus = sub.add_parser("build-status", help="Check whether WolvenKit Object Spawner import produced every expected REDengine file")
+-    bstatus.add_argument("workspace", type=Path); bstatus.add_argument("--json", action="store_true")
++    bstatus.add_argument("workspace", type=Path)
++    bstatus.add_argument("--json", action="store_true")
+ 
+     bnimp = sub.add_parser("build-native-import", help="Use a captured template bundle + WolvenKit JSON deserializer to populate source/archive; preview unless --run")
+-    bnimp.add_argument("workspace", type=Path); bnimp.add_argument("bundle", type=Path); bnimp.add_argument("--cli"); bnimp.add_argument("--run", action="store_true"); bnimp.add_argument("--timeout", type=int, default=300); bnimp.add_argument("--clean-json", action="store_true"); bnimp.add_argument("--json", action="store_true")
++    bnimp.add_argument("workspace", type=Path)
++    bnimp.add_argument("bundle", type=Path)
++    bnimp.add_argument("--cli")
++    bnimp.add_argument("--run", action="store_true")
++    bnimp.add_argument("--timeout", type=int, default=300)
++    bnimp.add_argument("--clean-json", action="store_true")
++    bnimp.add_argument("--json", action="store_true")
+ 
+     bwimp = sub.add_parser("build-worker-import", help="Use the verified .NET 10 WolvenKit worker to populate source/archive; preview unless --run")
+-    bwimp.add_argument("workspace", type=Path); bwimp.add_argument("--worker"); bwimp.add_argument("--run", action="store_true"); bwimp.add_argument("--timeout", type=int, default=300); bwimp.add_argument("--clean-json", action="store_true"); bwimp.add_argument("--json", action="store_true")
++    bwimp.add_argument("workspace", type=Path)
++    bwimp.add_argument("--worker")
++    bwimp.add_argument("--run", action="store_true")
++    bwimp.add_argument("--timeout", type=int, default=300)
++    bwimp.add_argument("--clean-json", action="store_true")
++    bwimp.add_argument("--json", action="store_true")
+ 
+     bbackend = sub.add_parser("build-backends", help="Detect WolvenKit CLI and explain native/Object-Spawner conversion capability")
+-    bbackend.add_argument("--cli", type=Path); bbackend.add_argument("--world-builder-root", type=Path); bbackend.add_argument("--json", action="store_true")
++    bbackend.add_argument("--cli", type=Path)
++    bbackend.add_argument("--world-builder-root", type=Path)
++    bbackend.add_argument("--json", action="store_true")
+ 
+     bpack = sub.add_parser("build-pack", help="Pack completed source/archive with WolvenKit CLI/cp77tools; preview unless --run")
+-    bpack.add_argument("workspace", type=Path); bpack.add_argument("--cli"); bpack.add_argument("--output", type=Path); bpack.add_argument("--run", action="store_true"); bpack.add_argument("--timeout", type=int, default=300); bpack.add_argument("--json", action="store_true")
++    bpack.add_argument("workspace", type=Path)
++    bpack.add_argument("--cli")
++    bpack.add_argument("--output", type=Path)
++    bpack.add_argument("--run", action="store_true")
++    bpack.add_argument("--timeout", type=int, default=300)
++    bpack.add_argument("--json", action="store_true")
+ 
+     bpackage = sub.add_parser("build-package", help="Assemble a distributable Cyberpunk game-layout folder/ZIP from a built archive and resources")
+-    bpackage.add_argument("workspace", type=Path); bpackage.add_argument("--archive", required=True, type=Path); bpackage.add_argument("--output", required=True, type=Path); bpackage.add_argument("--zip", dest="zip_output", type=Path); bpackage.add_argument("--no-clean", action="store_true"); bpackage.add_argument("--json", action="store_true")
++    bpackage.add_argument("workspace", type=Path)
++    bpackage.add_argument("--archive", required=True, type=Path)
++    bpackage.add_argument("--output", required=True, type=Path)
++    bpackage.add_argument("--zip", dest="zip_output", type=Path)
++    bpackage.add_argument("--no-clean", action="store_true")
++    bpackage.add_argument("--json", action="store_true")
+ 
+     bverify = sub.add_parser("build-verify", help="Verify game-layout package structure and optional conflicts against an installed game")
+-    bverify.add_argument("layout", type=Path); bverify.add_argument("--game-root", type=Path); bverify.add_argument("--json", action="store_true")
++    bverify.add_argument("layout", type=Path)
++    bverify.add_argument("--game-root", type=Path)
++    bverify.add_argument("--json", action="store_true")
+ 
+     bdeploy = sub.add_parser("build-deploy", help="Preview or deploy a prepared game-layout folder into Cyberpunk; requires --apply to write")
+-    bdeploy.add_argument("layout", type=Path); bdeploy.add_argument("game_root", type=Path); bdeploy.add_argument("--apply", action="store_true"); bdeploy.add_argument("--overwrite", action="store_true"); bdeploy.add_argument("--json", action="store_true")
++    bdeploy.add_argument("layout", type=Path)
++    bdeploy.add_argument("game_root", type=Path)
++    bdeploy.add_argument("--apply", action="store_true")
++    bdeploy.add_argument("--overwrite", action="store_true")
++    bdeploy.add_argument("--json", action="store_true")
+ 
+     bdoctor = sub.add_parser("build-doctor", help="Combine package verification with issue-only World Builder/CET/framework log review")
+-    bdoctor.add_argument("layout", type=Path); bdoctor.add_argument("--game-root", type=Path); bdoctor.add_argument("--tail", type=int, default=200); bdoctor.add_argument("--json", action="store_true")
++    bdoctor.add_argument("layout", type=Path)
++    bdoctor.add_argument("--game-root", type=Path)
++    bdoctor.add_argument("--tail", type=int, default=200)
++    bdoctor.add_argument("--json", action="store_true")
+ 
+     ntpl = sub.add_parser("native-template-plan", help="Generate a WolvenKit wscript that captures the exact RED default types needed for an export")
+-    ntpl.add_argument("export_file", type=Path); ntpl.add_argument("output", type=Path); ntpl.add_argument("--resource-name"); ntpl.add_argument("--json", action="store_true")
++    ntpl.add_argument("export_file", type=Path)
++    ntpl.add_argument("output", type=Path)
++    ntpl.add_argument("--resource-name")
++    ntpl.add_argument("--json", action="store_true")
+ 
+     ntplv = sub.add_parser("native-template-verify", help="Verify a captured RED type template bundle covers a World Builder export")
+-    ntplv.add_argument("export_file", type=Path); ntplv.add_argument("bundle", type=Path); ntplv.add_argument("--json", action="store_true")
++    ntplv.add_argument("export_file", type=Path)
++    ntplv.add_argument("bundle", type=Path)
++    ntplv.add_argument("--json", action="store_true")
+ 
+     njson = sub.add_parser("native-json", help="Reproduce World Builder importer output as WolvenKit JSON using a captured template bundle")
+-    njson.add_argument("export_file", type=Path); njson.add_argument("bundle", type=Path); njson.add_argument("output", type=Path); njson.add_argument("--json", action="store_true")
++    njson.add_argument("export_file", type=Path)
++    njson.add_argument("bundle", type=Path)
++    njson.add_argument("output", type=Path)
++    njson.add_argument("--json", action="store_true")
+ 
+     npre = sub.add_parser("native-preflight", help="Probe a WolvenKit CLI/cp77tools binary for cross-platform JSON-to-CR2W support")
+-    npre.add_argument("--cli"); npre.add_argument("--timeout", type=int, default=30); npre.add_argument("--json", action="store_true")
++    npre.add_argument("--cli")
++    npre.add_argument("--timeout", type=int, default=30)
++    npre.add_argument("--json", action="store_true")
+ 
+     nconv = sub.add_parser("native-convert", help="Convert prepared WolvenKit JSON intermediates to CR2W; preview unless --run")
+-    nconv.add_argument("native_json", type=Path); nconv.add_argument("output", type=Path); nconv.add_argument("--cli"); nconv.add_argument("--run", action="store_true"); nconv.add_argument("--timeout", type=int, default=300); nconv.add_argument("--json", action="store_true")
++    nconv.add_argument("native_json", type=Path)
++    nconv.add_argument("output", type=Path)
++    nconv.add_argument("--cli")
++    nconv.add_argument("--run", action="store_true")
++    nconv.add_argument("--timeout", type=int, default=300)
++    nconv.add_argument("--json", action="store_true")
+ 
+     nimp = sub.add_parser("native-import", help="Prepare WolvenKit JSON and convert a WB export to CR2W in one step; preview unless --run")
+-    nimp.add_argument("export_file", type=Path); nimp.add_argument("bundle", type=Path); nimp.add_argument("output", type=Path); nimp.add_argument("--cli"); nimp.add_argument("--run", action="store_true"); nimp.add_argument("--timeout", type=int, default=300); nimp.add_argument("--clean-json", action="store_true"); nimp.add_argument("--json", action="store_true")
++    nimp.add_argument("export_file", type=Path)
++    nimp.add_argument("bundle", type=Path)
++    nimp.add_argument("output", type=Path)
++    nimp.add_argument("--cli")
++    nimp.add_argument("--run", action="store_true")
++    nimp.add_argument("--timeout", type=int, default=300)
++    nimp.add_argument("--clean-json", action="store_true")
++    nimp.add_argument("--json", action="store_true")
+ 
+     nverify = sub.add_parser("native-verify", help="Verify native-conversion CR2W outputs exist and carry CR2W magic")
+-    nverify.add_argument("output", type=Path); nverify.add_argument("--target", action="append", default=[]); nverify.add_argument("--allow-non-cr2w", action="store_true"); nverify.add_argument("--json", action="store_true")
++    nverify.add_argument("output", type=Path)
++    nverify.add_argument("--target", action="append", default=[])
++    nverify.add_argument("--allow-non-cr2w", action="store_true")
++    nverify.add_argument("--json", action="store_true")
+ 
+     wbuild = sub.add_parser("worker-build", help="Build the bundled .NET 10 WolvenKit worker with dotnet publish; preview unless --run")
+-    wbuild.add_argument("--source", type=Path); wbuild.add_argument("--output", type=Path); wbuild.add_argument("--dotnet"); wbuild.add_argument("--run", action="store_true"); wbuild.add_argument("--timeout", type=int, default=600); wbuild.add_argument("--log-file", type=Path); wbuild.add_argument("--json", action="store_true")
++    wbuild.add_argument("--source", type=Path)
++    wbuild.add_argument("--output", type=Path)
++    wbuild.add_argument("--dotnet")
++    wbuild.add_argument("--run", action="store_true")
++    wbuild.add_argument("--timeout", type=int, default=600)
++    wbuild.add_argument("--log-file", type=Path)
++    wbuild.add_argument("--json", action="store_true")
+ 
+     wpre = sub.add_parser("worker-preflight", help="Run authoritative self-test of the .NET WolvenKit worker")
+-    wpre.add_argument("--worker"); wpre.add_argument("--timeout", type=int, default=30); wpre.add_argument("--json", action="store_true")
++    wpre.add_argument("--worker")
++    wpre.add_argument("--timeout", type=int, default=30)
++    wpre.add_argument("--json", action="store_true")
+ 
+     winspect = sub.add_parser("worker-inspect", help="Inspect WolvenKit assemblies/reflection API surface without requiring the CR2W self-test to pass")
+-    winspect.add_argument("--worker"); winspect.add_argument("--timeout", type=int, default=30); winspect.add_argument("--json", action="store_true")
++    winspect.add_argument("--worker")
++    winspect.add_argument("--timeout", type=int, default=30)
++    winspect.add_argument("--json", action="store_true")
+ 
+     wdoctor = sub.add_parser("worker-doctor", help="Collect worker/.NET diagnostics and optionally write a support ZIP for later compatibility testing")
+-    wdoctor.add_argument("--worker"); wdoctor.add_argument("--dotnet"); wdoctor.add_argument("--output", type=Path); wdoctor.add_argument("--timeout", type=int, default=30); wdoctor.add_argument("--json", action="store_true")
++    wdoctor.add_argument("--worker")
++    wdoctor.add_argument("--dotnet")
++    wdoctor.add_argument("--output", type=Path)
++    wdoctor.add_argument("--timeout", type=int, default=30)
++    wdoctor.add_argument("--json", action="store_true")
+ 
+     wbundle = sub.add_parser("worker-bundle", help="Create exact RED default templates directly through the .NET WolvenKit worker; preview unless --run")
+-    wbundle.add_argument("export_file", type=Path); wbundle.add_argument("output", type=Path); wbundle.add_argument("--worker"); wbundle.add_argument("--run", action="store_true"); wbundle.add_argument("--timeout", type=int, default=120); wbundle.add_argument("--json", action="store_true")
++    wbundle.add_argument("export_file", type=Path)
++    wbundle.add_argument("output", type=Path)
++    wbundle.add_argument("--worker")
++    wbundle.add_argument("--run", action="store_true")
++    wbundle.add_argument("--timeout", type=int, default=120)
++    wbundle.add_argument("--json", action="store_true")
+ 
+     wimp = sub.add_parser("worker-import", help="Convert a WB export through the .NET WolvenKit worker without WScript template capture; preview unless --run")
+-    wimp.add_argument("export_file", type=Path); wimp.add_argument("output", type=Path); wimp.add_argument("--worker"); wimp.add_argument("--run", action="store_true"); wimp.add_argument("--timeout", type=int, default=300); wimp.add_argument("--clean-json", action="store_true"); wimp.add_argument("--json", action="store_true")
++    wimp.add_argument("export_file", type=Path)
++    wimp.add_argument("output", type=Path)
++    wimp.add_argument("--worker")
++    wimp.add_argument("--run", action="store_true")
++    wimp.add_argument("--timeout", type=int, default=300)
++    wimp.add_argument("--clean-json", action="store_true")
++    wimp.add_argument("--json", action="store_true")
+ 
+     compat = sub.add_parser("compat-scan", help="Scan a World Builder install/source and optionally compare a saved build against its modules/schema")
+-    compat.add_argument("world_builder_root", type=Path); compat.add_argument("--project", type=Path); compat.add_argument("--json", action="store_true")
++    compat.add_argument("world_builder_root", type=Path)
++    compat.add_argument("--project", type=Path)
++    compat.add_argument("--json", action="store_true")
+ 
+     render = sub.add_parser("prefab-render", help="Render ${parameter} placeholders in a JSON World Builder prefab/build template")
+-    render.add_argument("template", type=Path); render.add_argument("--set", action="append", default=[]); render.add_argument("--output", type=Path); render.add_argument("--json", action="store_true")
++    render.add_argument("template", type=Path)
++    render.add_argument("--set", action="append", default=[])
++    render.add_argument("--output", type=Path)
++    render.add_argument("--json", action="store_true")
+ 
+     abuild = sub.add_parser("assets-build", help="Build a searchable SQLite asset index from World Builder data/spawnables")
+     abuild.add_argument("world_builder_root", type=Path)
+@@ -453,50 +576,111 @@
+     ainfo.add_argument("--json", action="store_true")
+ 
+     sem_build = sub.add_parser("semantic-build", help="Build deterministic semantic tags/facets over an existing asset catalog")
+-    sem_build.add_argument("database", type=Path); sem_build.add_argument("--overrides", type=Path); sem_build.add_argument("--json", action="store_true")
++    sem_build.add_argument("database", type=Path)
++    sem_build.add_argument("--overrides", type=Path)
++    sem_build.add_argument("--json", action="store_true")
+ 
+     sem_search = sub.add_parser("semantic-search", help="Search assets by derived/user semantic tags plus depot-path text")
+-    sem_search.add_argument("database", type=Path); sem_search.add_argument("query")
+-    sem_search.add_argument("--role"); sem_search.add_argument("--style"); sem_search.add_argument("--material"); sem_search.add_argument("--condition")
+-    sem_search.add_argument("--category"); sem_search.add_argument("--variant"); sem_search.add_argument("--limit", type=int, default=25); sem_search.add_argument("--json", action="store_true")
++    sem_search.add_argument("database", type=Path)
++    sem_search.add_argument("query")
++    sem_search.add_argument("--role")
++    sem_search.add_argument("--style")
++    sem_search.add_argument("--material")
++    sem_search.add_argument("--condition")
++    sem_search.add_argument("--category")
++    sem_search.add_argument("--variant")
++    sem_search.add_argument("--limit", type=int, default=25)
++    sem_search.add_argument("--json", action="store_true")
+ 
+     bset = sub.add_parser("bounds-set", help="Attach explicit local XYZ bounds to one indexed asset")
+-    bset.add_argument("database", type=Path); bset.add_argument("asset_id", type=int); bset.add_argument("--x", type=float, required=True); bset.add_argument("--y", type=float, required=True); bset.add_argument("--z", type=float, required=True)
+-    bset.add_argument("--source", default="user"); bset.add_argument("--confidence", type=float, default=1.0); bset.add_argument("--json", action="store_true")
++    bset.add_argument("database", type=Path)
++    bset.add_argument("asset_id", type=int)
++    bset.add_argument("--x", type=float, required=True)
++    bset.add_argument("--y", type=float, required=True)
++    bset.add_argument("--z", type=float, required=True)
++    bset.add_argument("--source", default="user")
++    bset.add_argument("--confidence", type=float, default=1.0)
++    bset.add_argument("--json", action="store_true")
+ 
+     bimport = sub.add_parser("bounds-import", help="Import explicit asset bounds from JSON")
+-    bimport.add_argument("database", type=Path); bimport.add_argument("input"); bimport.add_argument("--json", action="store_true")
++    bimport.add_argument("database", type=Path)
++    bimport.add_argument("input")
++    bimport.add_argument("--json", action="store_true")
+ 
+     binfo = sub.add_parser("bounds-info", help="Show explicit/effective asset bounds and fallback heuristics")
+-    binfo.add_argument("database", type=Path); binfo.add_argument("--id", type=int); binfo.add_argument("--json", action="store_true")
++    binfo.add_argument("database", type=Path)
++    binfo.add_argument("--id", type=int)
++    binfo.add_argument("--json", action="store_true")
+ 
+     collisions = sub.add_parser("collisions", help="Approximate saved-build collision scan using explicit/heuristic oriented bounds")
+-    collisions.add_argument("file", type=Path); collisions.add_argument("--catalog", required=True, type=Path); collisions.add_argument("--clearance", type=float, default=0.0)
+-    collisions.add_argument("--explicit-only", action="store_true"); collisions.add_argument("--json", action="store_true")
++    collisions.add_argument("file", type=Path)
++    collisions.add_argument("--catalog", required=True, type=Path)
++    collisions.add_argument("--clearance", type=float, default=0.0)
++    collisions.add_argument("--explicit-only", action="store_true")
++    collisions.add_argument("--json", action="store_true")
+ 
+     pcompile = sub.add_parser("plan-compile", help="Compile a declarative cp77wb construction plan into exact indexed spawn operations")
+-    pcompile.add_argument("plan"); pcompile.add_argument("--catalog", required=True, type=Path); pcompile.add_argument("--output", type=Path); pcompile.add_argument("--json", action="store_true")
++    pcompile.add_argument("plan")
++    pcompile.add_argument("--catalog", required=True, type=Path)
++    pcompile.add_argument("--output", type=Path)
++    pcompile.add_argument("--json", action="store_true")
+ 
+     ppreview = sub.add_parser("plan-preview", help="Compile a construction plan, apply to a clone, validate and report approximate existing collisions")
+-    ppreview.add_argument("file", type=Path); ppreview.add_argument("plan"); ppreview.add_argument("--catalog", required=True, type=Path); ppreview.add_argument("--json", action="store_true")
++    ppreview.add_argument("file", type=Path)
++    ppreview.add_argument("plan")
++    ppreview.add_argument("--catalog", required=True, type=Path)
++    ppreview.add_argument("--json", action="store_true")
+ 
+     papply = sub.add_parser("plan-apply", help="Apply a declarative construction plan to a saved build; dry-run unless --write")
+-    papply.add_argument("file", type=Path); papply.add_argument("plan"); papply.add_argument("--catalog", required=True, type=Path); _add_write_args(papply)
++    papply.add_argument("file", type=Path)
++    papply.add_argument("plan")
++    papply.add_argument("--catalog", required=True, type=Path)
++    _add_write_args(papply)
+ 
+     fence = sub.add_parser("generate-fence", help="Generate repeated fence segments/posts along explicit points or a WB marker/spline group")
+-    fence.add_argument("file", type=Path); fence.add_argument("parent"); fence.add_argument("--catalog", required=True, type=Path); fence.add_argument("--segment-asset", required=True); fence.add_argument("--post-asset")
+-    fsrc=fence.add_mutually_exclusive_group(required=True); fsrc.add_argument("--points"); fsrc.add_argument("--marker-group")
+-    fence.add_argument("--spacing", type=float, required=True); fence.add_argument("--curve-samples", type=int, default=12); fence.add_argument("--yaw-offset", type=float, default=0); fence.add_argument("--name", default="Generated Fence"); _add_write_args(fence)
++    fence.add_argument("file", type=Path)
++    fence.add_argument("parent")
++    fence.add_argument("--catalog", required=True, type=Path)
++    fence.add_argument("--segment-asset", required=True)
++    fence.add_argument("--post-asset")
++    fsrc=fence.add_mutually_exclusive_group(required=True)
++    fsrc.add_argument("--points")
++    fsrc.add_argument("--marker-group")
++    fence.add_argument("--spacing", type=float, required=True)
++    fence.add_argument("--curve-samples", type=int, default=12)
++    fence.add_argument("--yaw-offset", type=float, default=0)
++    fence.add_argument("--name", default="Generated Fence")
++    _add_write_args(fence)
+ 
+     road = sub.add_parser("generate-road", help="Generate repeated road tiles and optional edge assets along a path")
+-    road.add_argument("file", type=Path); road.add_argument("parent"); road.add_argument("--catalog", required=True, type=Path); road.add_argument("--tile-asset", required=True); road.add_argument("--edge-asset")
+-    rsrc=road.add_mutually_exclusive_group(required=True); rsrc.add_argument("--points"); rsrc.add_argument("--marker-group")
+-    road.add_argument("--spacing", type=float, required=True); road.add_argument("--width", type=float, required=True); road.add_argument("--curve-samples", type=int, default=12); road.add_argument("--yaw-offset", type=float, default=0); road.add_argument("--name", default="Generated Road"); _add_write_args(road)
++    road.add_argument("file", type=Path)
++    road.add_argument("parent")
++    road.add_argument("--catalog", required=True, type=Path)
++    road.add_argument("--tile-asset", required=True)
++    road.add_argument("--edge-asset")
++    rsrc=road.add_mutually_exclusive_group(required=True)
++    rsrc.add_argument("--points")
++    rsrc.add_argument("--marker-group")
++    road.add_argument("--spacing", type=float, required=True)
++    road.add_argument("--width", type=float, required=True)
++    road.add_argument("--curve-samples", type=int, default=12)
++    road.add_argument("--yaw-offset", type=float, default=0)
++    road.add_argument("--name", default="Generated Road")
++    _add_write_args(road)
+ 
+     cable = sub.add_parser("generate-cable", help="Generate a repeated cable/pipe segment chain along a path without guessing mesh stretch")
+-    cable.add_argument("file", type=Path); cable.add_argument("parent"); cable.add_argument("--catalog", required=True, type=Path); cable.add_argument("--segment-asset", required=True)
+-    csrc=cable.add_mutually_exclusive_group(required=True); csrc.add_argument("--points"); csrc.add_argument("--marker-group")
+-    cable.add_argument("--spacing", type=float, required=True); cable.add_argument("--curve-samples", type=int, default=12); cable.add_argument("--yaw-offset", type=float, default=0); cable.add_argument("--name", default="Generated Cable"); _add_write_args(cable)
++    cable.add_argument("file", type=Path)
++    cable.add_argument("parent")
++    cable.add_argument("--catalog", required=True, type=Path)
++    cable.add_argument("--segment-asset", required=True)
++    csrc=cable.add_mutually_exclusive_group(required=True)
++    csrc.add_argument("--points")
++    csrc.add_argument("--marker-group")
++    cable.add_argument("--spacing", type=float, required=True)
++    cable.add_argument("--curve-samples", type=int, default=12)
++    cable.add_argument("--yaw-offset", type=float, default=0)
++    cable.add_argument("--name", default="Generated Cable")
++    _add_write_args(cable)
+ 
+     spawn = sub.add_parser("spawn-asset", help="Insert an indexed World Builder asset under a saved-build group")
+     spawn.add_argument("file", type=Path)
+@@ -606,85 +790,129 @@
+             return 0
+ 
+         if args.command == "export-inspect":
+-            result = inspect_export(args.export_file, importer_version=args.importer_version); _print_json(result)
++            result = inspect_export(args.export_file, importer_version=args.importer_version)
++            _print_json(result)
+             return 0 if result["valid"] else 2
+ 
+         if args.command == "export-xl":
+-            result = write_archive_xl(args.export_file, args.output, format=args.format); _print_json(result)
++            result = write_archive_xl(args.export_file, args.output, format=args.format)
++            _print_json(result)
+             return 0
+ 
+         if args.command == "build-prepare":
+-            result = prepare_build_workspace(args.export_file, args.workspace, world_builder_root=args.world_builder_root, project_name=args.project_name, author=args.author, version=args.project_version, description=args.description, force=args.force, scaffold_tweak=args.scaffold_tweak); _print_json(result)
++            result = prepare_build_workspace(args.export_file, args.workspace, world_builder_root=args.world_builder_root, project_name=args.project_name, author=args.author, version=args.project_version, description=args.description, force=args.force, scaffold_tweak=args.scaffold_tweak)
++            _print_json(result)
+             return 0
+ 
+         if args.command == "build-status":
+-            result = build_status(args.workspace); _print_json(result)
++            result = build_status(args.workspace)
++            _print_json(result)
+             return 0 if result["importComplete"] else 2
+ 
+         if args.command == "build-native-import":
+-            result = build_native_import(args.workspace, args.bundle, cli=args.cli, run=args.run, keep_json=not args.clean_json, timeout=args.timeout); _print_json(result)
++            result = build_native_import(args.workspace, args.bundle, cli=args.cli, run=args.run, keep_json=not args.clean_json, timeout=args.timeout)
++            _print_json(result)
+             return 0 if (not args.run or result.get("ready")) else 2
+ 
+         if args.command == "build-worker-import":
+-            result = build_worker_import(args.workspace, worker=args.worker, run=args.run, keep_json=not args.clean_json, timeout=args.timeout); _print_json(result)
++            result = build_worker_import(args.workspace, worker=args.worker, run=args.run, keep_json=not args.clean_json, timeout=args.timeout)
++            _print_json(result)
+             return 0 if (not args.run or result.get("ready")) else 2
+ 
+         if args.command == "build-backends":
+-            result = backend_scan(cli=args.cli, world_builder_root=args.world_builder_root); _print_json(result); return 0
++            result = backend_scan(cli=args.cli, world_builder_root=args.world_builder_root)
++            _print_json(result)
++            return 0
+ 
+         if args.command == "build-pack":
+-            result = build_pack(args.workspace, cli=args.cli, output=args.output, run=args.run, timeout=args.timeout); _print_json(result); return 0
++            result = build_pack(args.workspace, cli=args.cli, output=args.output, run=args.run, timeout=args.timeout)
++            _print_json(result)
++            return 0
+ 
+         if args.command == "build-package":
+-            result = build_package(args.workspace, archive=args.archive, output=args.output, zip_output=args.zip_output, clean=not args.no_clean); _print_json(result); return 0 if result["ready"] else 2
++            result = build_package(args.workspace, archive=args.archive, output=args.output, zip_output=args.zip_output, clean=not args.no_clean)
++            _print_json(result)
++            return 0 if result["ready"] else 2
+ 
+         if args.command == "build-verify":
+-            result = verify_package(args.layout, game_root=args.game_root); _print_json(result); return 0 if result["valid"] else 2
++            result = verify_package(args.layout, game_root=args.game_root)
++            _print_json(result)
++            return 0 if result["valid"] else 2
+ 
+         if args.command == "build-deploy":
+-            result = deploy_layout(args.layout, args.game_root, apply=args.apply, overwrite=args.overwrite); _print_json(result); return 0
++            result = deploy_layout(args.layout, args.game_root, apply=args.apply, overwrite=args.overwrite)
++            _print_json(result)
++            return 0
+ 
+         if args.command == "build-doctor":
+-            result = build_doctor(args.layout, game_root=args.game_root, tail=args.tail); _print_json(result); return 0 if result["package"]["valid"] else 2
++            result = build_doctor(args.layout, game_root=args.game_root, tail=args.tail)
++            _print_json(result)
++            return 0 if result["package"]["valid"] else 2
+ 
+         if args.command == "native-template-plan":
+-            result = make_template_capture_script(args.export_file, args.output, resource_name=args.resource_name); _print_json(result); return 0
++            result = make_template_capture_script(args.export_file, args.output, resource_name=args.resource_name)
++            _print_json(result)
++            return 0
+ 
+         if args.command == "native-template-verify":
+-            result = verify_template_bundle(args.export_file, args.bundle); _print_json(result); return 0 if result["valid"] else 2
++            result = verify_template_bundle(args.export_file, args.bundle)
++            _print_json(result)
++            return 0 if result["valid"] else 2
+ 
+         if args.command == "native-json":
+-            result = prepare_native_json(args.export_file, args.bundle, args.output); _print_json(result); return 0
++            result = prepare_native_json(args.export_file, args.bundle, args.output)
++            _print_json(result)
++            return 0
+ 
+         if args.command == "native-preflight":
+-            result = native_preflight(cli=args.cli, timeout=args.timeout); _print_json(result); return 0 if result["ready"] else 2
++            result = native_preflight(cli=args.cli, timeout=args.timeout)
++            _print_json(result)
++            return 0 if result["ready"] else 2
+ 
+         if args.command == "native-convert":
+-            result = native_convert(args.native_json, args.output, cli=args.cli, run=args.run, timeout=args.timeout); _print_json(result); return 0 if (not args.run or result.get("verification", {}).get("valid")) else 2
++            result = native_convert(args.native_json, args.output, cli=args.cli, run=args.run, timeout=args.timeout)
++            _print_json(result)
++            return 0 if (not args.run or result.get("verification", {}).get("valid")) else 2
+ 
+         if args.command == "native-import":
+-            result = native_import(args.export_file, args.bundle, args.output, cli=args.cli, run=args.run, keep_json=not args.clean_json, timeout=args.timeout); _print_json(result); return 0 if (not args.run or result.get("native")) else 2
++            result = native_import(args.export_file, args.bundle, args.output, cli=args.cli, run=args.run, keep_json=not args.clean_json, timeout=args.timeout)
++            _print_json(result)
++            return 0 if (not args.run or result.get("native")) else 2
+ 
+         if args.command == "native-verify":
+-            result = verify_native_outputs(args.output, args.target or None, strict_magic=not args.allow_non_cr2w); _print_json(result); return 0 if result["valid"] else 2
++            result = verify_native_outputs(args.output, args.target or None, strict_magic=not args.allow_non_cr2w)
++            _print_json(result)
++            return 0 if result["valid"] else 2
+ 
+         if args.command == "worker-build":
+-            result = build_worker(source=args.source, output=args.output, dotnet=args.dotnet, run=args.run, timeout=args.timeout, log_file=args.log_file); _print_json(result); return 0 if (not args.run or result.get("ready")) else 2
++            result = build_worker(source=args.source, output=args.output, dotnet=args.dotnet, run=args.run, timeout=args.timeout, log_file=args.log_file)
++            _print_json(result)
++            return 0 if (not args.run or result.get("ready")) else 2
+ 
+         if args.command == "worker-preflight":
+-            result = worker_preflight(worker=args.worker, timeout=args.timeout); _print_json(result); return 0 if result.get("ready") else 2
++            result = worker_preflight(worker=args.worker, timeout=args.timeout)
++            _print_json(result)
++            return 0 if result.get("ready") else 2
+ 
+         if args.command == "worker-inspect":
+-            result = worker_inspect(worker=args.worker, timeout=args.timeout); _print_json(result); return 0 if result.get("inspectAvailable") else 2
++            result = worker_inspect(worker=args.worker, timeout=args.timeout)
++            _print_json(result)
++            return 0 if result.get("inspectAvailable") else 2
+ 
+         if args.command == "worker-doctor":
+-            result = worker_doctor(worker=args.worker, dotnet=args.dotnet, output=args.output, timeout=args.timeout); _print_json(result); return 0
++            result = worker_doctor(worker=args.worker, dotnet=args.dotnet, output=args.output, timeout=args.timeout)
++            _print_json(result)
++            return 0
+ 
+         if args.command == "worker-bundle":
+-            result = worker_create_bundle(args.export_file, args.output, worker=args.worker, run=args.run, timeout=args.timeout); _print_json(result); return 0 if (not args.run or result.get("created")) else 2
++            result = worker_create_bundle(args.export_file, args.output, worker=args.worker, run=args.run, timeout=args.timeout)
++            _print_json(result)
++            return 0 if (not args.run or result.get("created")) else 2
+ 
+         if args.command == "worker-import":
+-            result = worker_import(args.export_file, args.output, worker=args.worker, run=args.run, keep_json=not args.clean_json, timeout=args.timeout); _print_json(result); return 0 if (not args.run or result.get("native")) else 2
++            result = worker_import(args.export_file, args.output, worker=args.worker, run=args.run, keep_json=not args.clean_json, timeout=args.timeout)
++            _print_json(result)
++            return 0 if (not args.run or result.get("native")) else 2
+ 
+         if args.command == "compat-scan":
+             result = scan_worldbuilder(args.world_builder_root, args.project)
+@@ -701,35 +929,49 @@
+ 
+         if args.command == "semantic-build":
+             result = build_semantic_index(args.database, args.overrides)
+-            if args.json: _print_json(result)
+-            else: print(f"Built semantic index for {result['assets']} assets ({result['seconds']}s, FTS5={result['fts5']})")
++            if args.json:
++                _print_json(result)
++            else:
++                print(f"Built semantic index for {result['assets']} assets ({result['seconds']}s, FTS5={result['fts5']})")
+             return 0
+ 
+         if args.command == "semantic-search":
+             result = semantic_search(args.database, args.query, role=args.role, style=args.style, material=args.material, condition=args.condition, category=args.category, variant=args.variant, limit=args.limit)
+-            if args.json: _print_json(result)
++            if args.json:
++                _print_json(result)
+             else:
+                 for row in result:
+                     facets=[]
+                     for key in ("roles","styles","materials","conditions"):
+-                        if row[key]: facets.append(f"{key}={','.join(row[key])}")
++                        if row[key]:
++                            facets.append(f"{key}={','.join(row[key])}")
+                     print(f"#{row['id']}  {row['category']}/{row['variant']}  {row['spawn_data']}" + ("  ["+"; ".join(facets)+"]" if facets else ""))
+             return 0
+ 
+         if args.command == "bounds-set":
+-            result=set_asset_bounds(args.database,args.asset_id,(args.x,args.y,args.z),source=args.source,confidence=args.confidence); _print_json(result); return 0
++            result=set_asset_bounds(args.database,args.asset_id,(args.x,args.y,args.z),source=args.source,confidence=args.confidence)
++            _print_json(result)
++            return 0
+         if args.command == "bounds-import":
+-            result=import_bounds(args.database,args.input); _print_json(result); return 0
++            result=import_bounds(args.database,args.input)
++            _print_json(result)
++            return 0
+         if args.command == "bounds-info":
+-            result=bounds_info(args.database,args.id); _print_json(result); return 0
++            result=bounds_info(args.database,args.id)
++            _print_json(result)
++            return 0
+         if args.command == "plan-compile":
+             result=compile_plan(load_plan(args.plan),args.catalog)
+             if args.output:
+-                args.output.write_text(json.dumps(result,ensure_ascii=False,indent=2)+"\n",encoding="utf-8"); print(f"Wrote {args.output}")
+-            else: _print_json(result)
++                args.output.write_text(json.dumps(result,ensure_ascii=False,indent=2)+"\n",encoding="utf-8")
++                print(f"Wrote {args.output}")
++            else:
++                _print_json(result)
+             return 0
+         if args.command == "plan-preview":
+-            result=preview_plan(WorldBuilderProject.load(args.file),load_plan(args.plan),args.catalog); _print_json(result); return 0 if result["valid"] else 2
++            result=preview_plan(WorldBuilderProject.load(args.file),load_plan(args.plan),args.catalog)
++            _print_json(result)
++            return 0 if result["valid"] else 2
+ 
+         if args.command == "assets-build":
+             result = build_catalog(args.world_builder_root, args.db)
+@@ -1045,22 +1287,29 @@
+             print(f"Wired elevator {result['elevator']} floors={len(result['floors'])} instanceDataPatched={result['instanceDataPatched']}", file=sys.stderr)
+             return _persist_or_diff(project, before, args)
+         if args.command == "collisions":
+-            result=scan_project_collisions(project,args.catalog,clearance=args.clearance,include_heuristic=not args.explicit_only); _print_json(result); return 0
++            result=scan_project_collisions(project,args.catalog,clearance=args.clearance,include_heuristic=not args.explicit_only)
++            _print_json(result)
++            return 0
+         if args.command == "plan-apply":
+-            compiled=compile_plan(load_plan(args.plan),args.catalog); result=apply_compiled_plan(project,compiled,args.catalog)
+-            print(f"Applied plan {compiled['name']}: {result['count']} objects under {result['group']}",file=sys.stderr); return _persist_or_diff(project,before,args)
++            compiled=compile_plan(load_plan(args.plan),args.catalog)
++            result=apply_compiled_plan(project,compiled,args.catalog)
++            print(f"Applied plan {compiled['name']}: {result['count']} objects under {result['group']}",file=sys.stderr)
++            return _persist_or_diff(project,before,args)
+         if args.command == "generate-fence":
+             points=marker_group_points(project,args.marker_group,curve_samples=args.curve_samples) if args.marker_group else load_points(args.points)
+             result=generate_fence(project,args.parent,catalog=args.catalog,segment_asset=args.segment_asset,post_asset=args.post_asset,points=points,spacing=args.spacing,name=args.name,yaw_offset=args.yaw_offset)
+-            print(f"Generated fence {result['group']} segments={len(result['segments'])} posts={len(result['posts'])}",file=sys.stderr); return _persist_or_diff(project,before,args)
++            print(f"Generated fence {result['group']} segments={len(result['segments'])} posts={len(result['posts'])}",file=sys.stderr)
++            return _persist_or_diff(project,before,args)
+         if args.command == "generate-road":
+             points=marker_group_points(project,args.marker_group,curve_samples=args.curve_samples) if args.marker_group else load_points(args.points)
+             result=generate_road(project,args.parent,catalog=args.catalog,tile_asset=args.tile_asset,edge_asset=args.edge_asset,points=points,spacing=args.spacing,width=args.width,name=args.name,yaw_offset=args.yaw_offset)
+-            print(f"Generated road {result['group']} tiles={len(result['tiles'])} edges={len(result['edges'])}",file=sys.stderr); return _persist_or_diff(project,before,args)
++            print(f"Generated road {result['group']} tiles={len(result['tiles'])} edges={len(result['edges'])}",file=sys.stderr)
++            return _persist_or_diff(project,before,args)
+         if args.command == "generate-cable":
+             points=marker_group_points(project,args.marker_group,curve_samples=args.curve_samples) if args.marker_group else load_points(args.points)
+             result=generate_cable_chain(project,args.parent,catalog=args.catalog,segment_asset=args.segment_asset,points=points,spacing=args.spacing,name=args.name,yaw_offset=args.yaw_offset)
+-            print(f"Generated cable {result['group']} segments={len(result['segments'])}",file=sys.stderr); return _persist_or_diff(project,before,args)
++            print(f"Generated cable {result['group']} segments={len(result['segments'])}",file=sys.stderr)
++            return _persist_or_diff(project,before,args)
+         if args.command == "spawn-asset":
+             asset = resolve_asset(args.catalog, args.asset, module_path=args.module, variant=args.variant)
+             path = project.add_spawnable(args.parent, module_path=asset.module_path, data_type=asset.data_type, spawn_data=asset.spawn_data, template=asset.template, name=args.name, position=(args.x, args.y, args.z), rotation=(args.roll, args.pitch, args.yaw), generate_node_ref=args.generate_noderef, node_ref_prefix=args.noderef_prefix)
+diff -ruN '--exclude=__pycache__' '--exclude=*.pyc' cp77wb-v1.0.1-original/cp77wb/cp77wb/devices.py cp77wb-v1.0.1-fixed/cp77wb/cp77wb/devices.py
+--- cp77wb-v1.0.1-original/cp77wb/cp77wb/devices.py	2026-09-15 10:55:53.000000000 +0000
++++ cp77wb-v1.0.1-fixed/cp77wb/cp77wb/devices.py	2026-09-15 16:11:32.746904409 +0000
+@@ -147,7 +147,7 @@
+ 
+     for index, (terminal_path, marker_path, floor_name) in enumerate(zip(terminal_paths, marker_paths, floor_names)):
+         terminal = _spawn(project, terminal_path)
+-        marker = _spawn(project, marker_path)
++        _spawn(project, marker_path)
+         terminal_ref = _ensure_node_ref(project, terminal_path, node_ref_prefix)
+         marker_ref = _ensure_node_ref(project, marker_path, node_ref_prefix)
+         terminal["persistent"] = True
+diff -ruN '--exclude=__pycache__' '--exclude=*.pyc' cp77wb-v1.0.1-original/cp77wb/cp77wb/mcp_server.py cp77wb-v1.0.1-fixed/cp77wb/cp77wb/mcp_server.py
+--- cp77wb-v1.0.1-original/cp77wb/cp77wb/mcp_server.py	2026-09-15 15:38:54.000000000 +0000
++++ cp77wb-v1.0.1-fixed/cp77wb/cp77wb/mcp_server.py	2026-09-15 16:12:39.031439532 +0000
+@@ -149,12 +149,14 @@
+ 
+ 
+ def _pivot(a: dict[str, Any]) -> tuple[float, float, float] | None:
+-    vals = (a.get("pivot_x"), a.get("pivot_y"), a.get("pivot_z"))
+-    if all(v is None for v in vals):
++    pivot_x = a.get("pivot_x")
++    pivot_y = a.get("pivot_y")
++    pivot_z = a.get("pivot_z")
++    if pivot_x is None and pivot_y is None and pivot_z is None:
+         return None
+-    if any(v is None for v in vals):
++    if pivot_x is None or pivot_y is None or pivot_z is None:
+         raise ValueError("pivot_x, pivot_y and pivot_z must be supplied together")
+-    return float(vals[0]), float(vals[1]), float(vals[2])
++    return float(pivot_x), float(pivot_y), float(pivot_z)
+ 
+ 
+ def _mutation(file: str, write: bool, operation: Callable[[WorldBuilderProject], Any]) -> dict[str, Any]:
+@@ -205,7 +207,8 @@
+         return archive_xl_config(_read_json(a["export_file"]))
+     if name == "wb_build_prepare":
+         if not bool(a.get("write",False)):
+-            rep=inspect_export(a["export_file"]); name0=a.get("project_name") or rep.get("name")
++            rep=inspect_export(a["export_file"])
++            name0=a.get("project_name") or rep.get("name")
+             return {"written":False,"export":rep,"workspace":str(Path(a["workspace"])/str(name0)),"requiresWrite":True}
+         return {"written":True,"result":prepare_build_workspace(a["export_file"],a["workspace"],world_builder_root=a.get("world_builder_root"),project_name=a.get("project_name"),author=str(a.get("author","")),version=str(a.get("project_version","1.0.0")),description=str(a.get("description","World Builder project prepared by cp77wb")),scaffold_tweak=bool(a.get("scaffold_tweak",False)))}
+     if name == "wb_build_status":
+@@ -312,10 +315,12 @@
+             origin = None
+             direction = None
+             if mode == "custom":
+-                keys = (a.get("origin_x"), a.get("origin_y"), a.get("origin_z"))
+-                if any(v is None for v in keys):
++                origin_x = a.get("origin_x")
++                origin_y = a.get("origin_y")
++                origin_z = a.get("origin_z")
++                if origin_x is None or origin_y is None or origin_z is None:
+                     raise ValueError("custom live raycast requires origin_x/origin_y/origin_z")
+-                origin = (float(keys[0]), float(keys[1]), float(keys[2]))
++                origin = (float(origin_x), float(origin_y), float(origin_z))
+                 direction = (float(a.get("dir_x", 0)), float(a.get("dir_y", 0)), float(a.get("dir_z", -1)))
+             return client.raycast(mode=mode, origin=origin, direction=direction, use_physical=bool(a.get("use_physical", True)), timeout=timeout)
+         apply = bool(a.get("apply", False))
+@@ -326,12 +331,14 @@
+         if name == "wb_live_rotate":
+             return client.rotate_selection(float(a.get("roll", 0)), float(a.get("pitch", 0)), float(a.get("yaw", 0)), apply=apply, timeout=timeout)
+         if name == "wb_live_scale":
+-            pivot_vals = (a.get("pivot_x"), a.get("pivot_y"), a.get("pivot_z"))
++            pivot_x = a.get("pivot_x")
++            pivot_y = a.get("pivot_y")
++            pivot_z = a.get("pivot_z")
+             pivot = None
+-            if any(v is not None for v in pivot_vals):
+-                if any(v is None for v in pivot_vals):
++            if pivot_x is not None or pivot_y is not None or pivot_z is not None:
++                if pivot_x is None or pivot_y is None or pivot_z is None:
+                     raise ValueError("pivot_x, pivot_y and pivot_z must be supplied together")
+-                pivot = (float(pivot_vals[0]), float(pivot_vals[1]), float(pivot_vals[2]))
++                pivot = (float(pivot_x), float(pivot_y), float(pivot_z))
+             return client.scale_selection(float(a.get("x", 1)), float(a.get("y", 1)), float(a.get("z", 1)), pivot=pivot, allow_partial=bool(a.get("allow_partial", False)), apply=apply, timeout=max(timeout, 8.0))
+         if name == "wb_live_snap":
+             return client.snap_selection(direction=(float(a.get("dir_x", 0)), float(a.get("dir_y", 0)), float(a.get("dir_z", -1))), apply=apply, timeout=max(timeout, 8.0))
+diff -ruN '--exclude=__pycache__' '--exclude=*.pyc' cp77wb-v1.0.1-original/cp77wb/cp77wb/native.py cp77wb-v1.0.1-fixed/cp77wb/cp77wb/native.py
+--- cp77wb-v1.0.1-original/cp77wb/cp77wb/native.py	2026-09-15 15:11:10.000000000 +0000
++++ cp77wb-v1.0.1-fixed/cp77wb/cp77wb/native.py	2026-09-15 16:12:39.031593375 +0000
+@@ -4,13 +4,12 @@
+ import hashlib
+ import json
+ import os
+-import re
+ import shutil
+ import subprocess
+ from pathlib import Path
+ from typing import Any
+ 
+-from .build import EXPORT_IMPORT_VERSION, inspect_export, _read_json, write_archive_xl
++from .build import inspect_export, _read_json
+ 
+ TEMPLATE_SCHEMA = "cp77wb-wkit-templates/1"
+ NATIVE_JSON_SCHEMA = "cp77wb-native-json/1"
+@@ -255,7 +254,8 @@
+     desc = _template(bundle, "worldStreamingSectorDescriptor")
+     desc["category"] = info.get("category")
+     desc["level"] = info.get("level")
+-    variants = info.get("variants") if isinstance(info.get("variants"), list) else []
++    variants_value = info.get("variants")
++    variants = variants_value if isinstance(variants_value, list) else []
+     desc["numNodeRanges"] = 1 + len(variants)
+     desc["streamingBox"]["Max"].update({"X": info["max"]["x"], "Y": info["max"]["y"], "Z": info["max"]["z"]})
+     desc["streamingBox"]["Min"].update({"X": info["min"]["x"], "Y": info["min"]["y"], "Z": info["min"]["z"]})
+@@ -329,23 +329,27 @@
+         for node in info.get("nodes", []):
+             _insert_node(sector, node, bundle)
+         rel = Path(str(data["name"])) / "sectors" / f"{info['name']}.streamingsector.json"
+-        p = out_root / rel; p.parent.mkdir(parents=True, exist_ok=True)
++        p = out_root / rel
++        p.parent.mkdir(parents=True, exist_ok=True)
+         p.write_text(json.dumps(sector, ensure_ascii=False, separators=(",", ":"))+"\n", encoding="utf-8")
+         files.append({"json": str(p), "target": str(rel)[:-5]})
+ 
+     if isinstance(data.get("devices"), dict) and data["devices"]:
+         rel = Path(str(data["name"])) / "custom_devices.devices.json"
+-        p = out_root / rel; p.parent.mkdir(parents=True, exist_ok=True)
++        p = out_root / rel
++        p.parent.mkdir(parents=True, exist_ok=True)
+         p.write_text(json.dumps(_devices_file(bundle, data["devices"]), ensure_ascii=False, separators=(",", ":"))+"\n", encoding="utf-8")
+         files.append({"json": str(p), "target": str(rel)[:-5]})
+     if isinstance(data.get("psEntries"), dict) and data["psEntries"]:
+         rel = Path(str(data["name"])) / "custom_devices.psrep.json"
+-        p = out_root / rel; p.parent.mkdir(parents=True, exist_ok=True)
++        p = out_root / rel
++        p.parent.mkdir(parents=True, exist_ok=True)
+         p.write_text(json.dumps(_ps_file(bundle, data["psEntries"]), ensure_ascii=False, separators=(",", ":"))+"\n", encoding="utf-8")
+         files.append({"json": str(p), "target": str(rel)[:-5]})
+ 
+     rel = Path(str(data["name"])) / "all.streamingblock.json"
+-    p = out_root / rel; p.parent.mkdir(parents=True, exist_ok=True)
++    p = out_root / rel
++    p.parent.mkdir(parents=True, exist_ok=True)
+     p.write_text(json.dumps(block, ensure_ascii=False, separators=(",", ":"))+"\n", encoding="utf-8")
+     files.append({"json": str(p), "target": str(rel)[:-5]})
+ 
+diff -ruN '--exclude=__pycache__' '--exclude=*.pyc' cp77wb-v1.0.1-original/cp77wb/cp77wb/planner.py cp77wb-v1.0.1-fixed/cp77wb/cp77wb/planner.py
+--- cp77wb-v1.0.1-original/cp77wb/cp77wb/planner.py	2026-09-15 14:37:16.000000000 +0000
++++ cp77wb-v1.0.1-fixed/cp77wb/cp77wb/planner.py	2026-09-15 16:12:39.031661758 +0000
+@@ -73,7 +73,8 @@
+ def _door_opening_matches(side: str, coord: float, door: dict[str, Any]) -> bool:
+     if str(door.get("side", "")).lower() != side:
+         return False
+-    offset = float(door.get("offset", 0.0)); width = float(door.get("width", 1.5))
++    offset = float(door.get("offset", 0.0))
++    width = float(door.get("width", 1.5))
+     return abs(coord - offset) < width / 2
+ 
+ 
+@@ -102,13 +103,17 @@
+ 
+     room = spec.get("room")
+     if isinstance(room, dict):
+-        width = float(room.get("width", 0)); depth = float(room.get("depth", 0)); wall_step = float(room.get("wallStep", room.get("segment", 2.0)))
++        width = float(room.get("width", 0))
++        depth = float(room.get("depth", 0))
++        wall_step = float(room.get("wallStep", room.get("segment", 2.0)))
+         if width <= 0 or depth <= 0 or wall_step <= 0:
+             raise ValueError("room width/depth/wallStep must be > 0")
+-        wall_spec = room.get("wall") if isinstance(room.get("wall"), dict) else {"asset": room.get("wallAsset")}
++        wall_value = room.get("wall")
++        wall_spec: dict[str, Any] = wall_value if isinstance(wall_value, dict) else {"asset": room.get("wallAsset")}
+         wall_asset = _resolve_spec_asset(catalog, wall_spec, selections)
+         doors = [d for d in room.get("doors", []) if isinstance(d, dict)]
+-        nx = max(2, int(round(width / wall_step)) + 1); ny = max(2, int(round(depth / wall_step)) + 1)
++        nx = max(2, int(round(width / wall_step)) + 1)
++        ny = max(2, int(round(depth / wall_step)) + 1)
+         # South/north: coordinate along X; west/east: coordinate along Y.
+         for i in range(nx):
+             local_x = -width/2 + width*i/(nx-1)
+@@ -127,39 +132,66 @@
+             if side not in {"north","south","east","west"}:
+                 raise ValueError(f"Door side must be north/south/east/west, got {side!r}")
+             asset = _resolve_spec_asset(catalog, door, selections)
+-            off = float(door.get("offset",0)); z = origin[2] + float(door.get("z",0))
+-            if side == "south": pos=(origin[0]+off, origin[1]-depth/2, z); yaw=0
+-            elif side == "north": pos=(origin[0]+off, origin[1]+depth/2, z); yaw=180
+-            elif side == "west": pos=(origin[0]-width/2, origin[1]+off, z); yaw=90
+-            else: pos=(origin[0]+width/2, origin[1]+off, z); yaw=-90
++            off = float(door.get("offset",0))
++            z = origin[2] + float(door.get("z",0))
++            if side == "south":
++                pos=(origin[0]+off, origin[1]-depth/2, z)
++                yaw=0
++            elif side == "north":
++                pos=(origin[0]+off, origin[1]+depth/2, z)
++                yaw=180
++            elif side == "west":
++                pos=(origin[0]-width/2, origin[1]+off, z)
++                yaw=90
++            else:
++                pos=(origin[0]+width/2, origin[1]+off, z)
++                yaw=-90
+             add(asset, pos, yaw, name=str(door.get("name","Door")), role="door", allow_overlap=True, bounds_override=door.get("bounds"))
+-        floor_spec = room.get("floor") if isinstance(room.get("floor"), dict) else ({"asset": room.get("floorAsset")} if room.get("floorAsset") else None)
++        floor_value = room.get("floor")
++        floor_asset_value = room.get("floorAsset")
++        floor_spec: dict[str, Any] | None = (
++            floor_value
++            if isinstance(floor_value, dict)
++            else ({"asset": floor_asset_value} if floor_asset_value else None)
++        )
+         if isinstance(floor_spec, dict) and (floor_spec.get("asset") or floor_spec.get("semanticQuery")):
+             floor_asset = _resolve_spec_asset(catalog, floor_spec, selections)
+             step = float(room.get("floorStep", wall_step))
+-            fx=max(1,int(math.ceil(width/step))); fy=max(1,int(math.ceil(depth/step)))
++            fx=max(1,int(math.ceil(width/step)))
++            fy=max(1,int(math.ceil(depth/step)))
+             for ix in range(fx):
+                 for iy in range(fy):
+-                    x=origin[0]-width/2+(ix+0.5)*width/fx; y=origin[1]-depth/2+(iy+0.5)*depth/fy
++                    x=origin[0]-width/2+(ix+0.5)*width/fx
++                    y=origin[1]-depth/2+(iy+0.5)*depth/fy
+                     add(floor_asset,(x,y,origin[2]),0,name="Floor",role="floor",allow_overlap=True)
+ 
+     for item in spec.get("placements", []):
+-        if not isinstance(item, dict): continue
++        if not isinstance(item, dict):
++            continue
+         asset = _resolve_spec_asset(catalog, item, selections)
+-        p = _point(item.get("position")); pos=(origin[0]+p[0],origin[1]+p[1],origin[2]+p[2])
++        p = _point(item.get("position"))
++        pos=(origin[0]+p[0],origin[1]+p[1],origin[2]+p[2])
+         add(asset, pos, float(item.get("yaw",0)), name=item.get("name"), role=item.get("role"), allow_overlap=bool(item.get("allowOverlap",False)), bounds_override=item.get("bounds"))
+ 
+     # Deterministic, collision-aware prop scatter. It avoids compiled boxes unless
+     # those boxes explicitly allow overlap. A failed requested count is an error by default.
+     for scat in spec.get("scatter", []):
+-        if not isinstance(scat, dict): continue
++        if not isinstance(scat, dict):
++            continue
+         asset = _resolve_spec_asset(catalog, scat, selections)
+-        count=int(scat.get("count",1)); seed=int(scat.get("seed",1)); clearance=float(scat.get("clearance",0.2))
+-        if count < 1: raise ValueError("scatter count must be >= 1")
++        count=int(scat.get("count",1))
++        seed=int(scat.get("seed",1))
++        clearance=float(scat.get("clearance",0.2))
++        if count < 1:
++            raise ValueError("scatter count must be >= 1")
+         region = scat.get("region") if isinstance(scat.get("region"), dict) else {}
+-        center=_point(region.get("center"), (0,0,0)); half=_point(region.get("halfExtents"), (2,2,0))
++        center=_point(region.get("center"), (0,0,0))
++        half=_point(region.get("halfExtents"), (2,2,0))
+         center=(origin[0]+center[0],origin[1]+center[1],origin[2]+center[2])
+-        b=effective_bounds(catalog,asset); rng=random.Random(seed); made=0; attempts=0
++        b=effective_bounds(catalog,asset)
++        rng=random.Random(seed)
++        made=0
++        attempts=0
+         # Structural walls/doors block props even though their mutual seam overlaps are ignored in the final collision report.
+         # Floors/ceilings are excluded because WB object origins are not guaranteed to be geometric centers.
+         blockers=[box for box,op in zip(boxes,operations) if op.get("role") not in {"floor","ceiling"}]
+@@ -168,13 +200,17 @@
+             pos=(center[0]+rng.uniform(-half[0],half[0]),center[1]+rng.uniform(-half[1],half[1]),center[2]+rng.uniform(-half[2],half[2]))
+             yaw=rng.uniform(0,360) if bool(scat.get("randomYaw",True)) else float(scat.get("yaw",0))
+             candidate=placement_box(f"scatter:{len(operations)}",pos,yaw,b,asset_id=asset.id)
+-            if any(boxes_overlap(candidate,x,clearance) for x in blockers): continue
++            if any(boxes_overlap(candidate,x,clearance) for x in blockers):
++                continue
+             add(asset,pos,yaw,name=scat.get("name"),role=scat.get("role"),allow_overlap=False,bounds_override=scat.get("bounds"))
+-            blockers.append(boxes[-1]); made += 1
++            blockers.append(boxes[-1])
++            made += 1
+         if made != count:
+             msg=f"scatter {scat.get('name') or asset.file_name}: placed {made}/{count} after {attempts} attempts"
+-            if scat.get("allowPartial"): warnings.append(msg)
+-            else: raise ValueError(msg)
++            if scat.get("allowPartial"):
++                warnings.append(msg)
++            else:
++                raise ValueError(msg)
+ 
+     # Only report collisions where neither side opted out. This mostly targets
+     # explicit props; structural seams and floors intentionally overlap/touch.
+@@ -193,8 +229,11 @@
+     group = project.add_group(str(compiled["parent"]), name=str(compiled.get("name","Claude Plan")), position=_point(compiled.get("origin")))
+     created=[]
+     for op in compiled.get("operations",[]):
+-        if not isinstance(op,dict) or op.get("op") != "spawn": continue
+-        asset=get_asset(catalog,int(op["assetId"])); pos=_point(op.get("position")); rot=_point(op.get("rotation"))
++        if not isinstance(op,dict) or op.get("op") != "spawn":
++            continue
++        asset=get_asset(catalog,int(op["assetId"]))
++        pos=_point(op.get("position"))
++        rot=_point(op.get("rotation"))
+         created.append(project.add_spawnable(group,module_path=asset.module_path,data_type=asset.data_type,spawn_data=asset.spawn_data,template=asset.template,name=op.get("name"),position=pos,rotation=rot))
+     return {"group":group,"created":created,"count":len(created)}
+ 
+@@ -202,7 +241,8 @@
+ def preview_plan(project: WorldBuilderProject, spec: dict[str, Any], catalog: str | Path) -> dict[str, Any]:
+     compiled=compile_plan(spec,catalog)
+     before_boxes=project_boxes(project,catalog)
+-    clone=project.clone(); result=apply_compiled_plan(clone,compiled,catalog)
++    clone=project.clone()
++    result=apply_compiled_plan(clone,compiled,catalog)
+     new_boxes=project_boxes(clone,catalog)
+     existing_keys={b.key for b in before_boxes}
+     planned=[b for b in new_boxes if b.key not in existing_keys]
+diff -ruN '--exclude=__pycache__' '--exclude=*.pyc' cp77wb-v1.0.1-original/cp77wb/cp77wb/procedural.py cp77wb-v1.0.1-fixed/cp77wb/cp77wb/procedural.py
+--- cp77wb-v1.0.1-original/cp77wb/cp77wb/procedural.py	2026-09-15 10:59:19.000000000 +0000
++++ cp77wb-v1.0.1-fixed/cp77wb/cp77wb/procedural.py	2026-09-15 16:12:39.031757783 +0000
+@@ -4,7 +4,7 @@
+ import math
+ import random
+ from pathlib import Path
+-from typing import Any, Iterable
++from typing import Any, Sequence
+ 
+ from .assets import resolve_asset
+ from .project import WorldBuilderProject, node_kind
+@@ -72,7 +72,8 @@
+         c0 = (p0[0] + tout[0], p0[1] + tout[1], p0[2] + tout[2])
+         c1 = (p1[0] + tin[0], p1[1] + tin[1], p1[2] + tin[2])
+         for j in range(1, samples + 1):
+-            t = j / samples; u = 1.0 - t
++            t = j / samples
++            u = 1.0 - t
+             out.append((
+                 u*u*u*p0[0] + 3*u*u*t*c0[0] + 3*u*t*t*c1[0] + t*t*t*p1[0],
+                 u*u*u*p0[1] + 3*u*u*t*c0[1] + 3*u*t*t*c1[1] + t*t*t*p1[1],
+@@ -86,7 +87,7 @@
+ 
+ 
+ def sample_polyline(
+-    points: list[tuple[float, float, float]],
++    points: Sequence[tuple[float, float, float]],
+     *,
+     spacing: float | None = None,
+     count: int | None = None,
+@@ -143,7 +144,7 @@
+ def place_along_path(
+     project: WorldBuilderProject,
+     source_path: str,
+-    points: list[tuple[float, float, float]],
++    points: Sequence[tuple[float, float, float]],
+     *,
+     spacing: float | None = None,
+     count: int | None = None,
+@@ -166,7 +167,7 @@
+     return {"source": source_path, "sourcePosition": source_pos, "samples": len(samples), "created": created}
+ 
+ 
+-def _inside_polygon(x: float, y: float, polygon: list[tuple[float, float, float]]) -> bool:
++def _inside_polygon(x: float, y: float, polygon: Sequence[tuple[float, float, float]]) -> bool:
+     inside = False
+     j = len(polygon) - 1
+     for i in range(len(polygon)):
+@@ -181,7 +182,7 @@
+ def polygon_scatter(
+     project: WorldBuilderProject,
+     source_path: str,
+-    polygon: list[tuple[float, float, float]],
++    polygon: Sequence[tuple[float, float, float]],
+     *,
+     count: int,
+     seed: int = 1,
+@@ -256,17 +257,25 @@
+     created = []
+     for _ in range(count):
+         if shape == "box":
+-            dx = rng.uniform(-size[0], size[0]); dy = rng.uniform(-size[1], size[1]); dz = rng.uniform(-size[2], size[2])
++            dx = rng.uniform(-size[0], size[0])
++            dy = rng.uniform(-size[1], size[1])
++            dz = rng.uniform(-size[2], size[2])
+         elif shape == "cylinder":
+             radius = size[0] * math.sqrt(rng.random())
+             angle = rng.random() * math.tau
+-            dx = radius * math.cos(angle); dy = radius * math.sin(angle); dz = rng.uniform(-size[2], size[2])
++            dx = radius * math.cos(angle)
++            dy = radius * math.sin(angle)
++            dz = rng.uniform(-size[2], size[2])
+         else:
+             while True:
+-                dx = rng.uniform(-1, 1); dy = rng.uniform(-1, 1); dz = rng.uniform(-1, 1)
++                dx = rng.uniform(-1, 1)
++                dy = rng.uniform(-1, 1)
++                dz = rng.uniform(-1, 1)
+                 if dx * dx + dy * dy + dz * dz <= 1:
+                     break
+-            dx *= size[0]; dy *= size[1]; dz *= size[2]
++            dx *= size[0]
++            dy *= size[1]
++            dz *= size[2]
+         pos = (center[0] + dx, center[1] + dy, center[2] + dz)
+         path = project.duplicate(source_path, count=1, node_ref_prefix=node_ref_prefix, keep_node_refs=keep_node_refs)[0]
+         cur = project.position(path)
+@@ -325,7 +334,11 @@
+     created = []
+     for i in range(count):
+         item, asset = rng.choices(resolved, weights=weights, k=1)[0]
+-        pos = tuple(center[j] + rng.uniform(-half_extents[j], half_extents[j]) for j in range(3))
++        pos = (
++            center[0] + rng.uniform(-half_extents[0], half_extents[0]),
++            center[1] + rng.uniform(-half_extents[1], half_extents[1]),
++            center[2] + rng.uniform(-half_extents[2], half_extents[2]),
++        )
+         yaw = rng.uniform(0, 360) if random_yaw else float(item.get("yaw", 0))
+         path = project.add_spawnable(
+             parent_path, module_path=asset.module_path, data_type=asset.data_type, spawn_data=asset.spawn_data,
+diff -ruN '--exclude=__pycache__' '--exclude=*.pyc' cp77wb-v1.0.1-original/cp77wb/cp77wb/project.py cp77wb-v1.0.1-fixed/cp77wb/cp77wb/project.py
+--- cp77wb-v1.0.1-original/cp77wb/cp77wb/project.py	2026-09-15 10:54:52.000000000 +0000
++++ cp77wb-v1.0.1-fixed/cp77wb/cp77wb/project.py	2026-09-15 16:12:39.031921320 +0000
+@@ -355,7 +355,8 @@
+         results: list[NodeEntry] = []
+         for entry in self.iter_nodes():
+             node = entry.node
+-            spawn = node.get("spawnable") if isinstance(node.get("spawnable"), dict) else {}
++            spawn_value = node.get("spawnable")
++            spawn = spawn_value if isinstance(spawn_value, dict) else {}
+             haystacks = [
+                 entry.path,
+                 str(node.get("name", "")),
+@@ -820,7 +821,7 @@
+                     raise ValueError("Cannot transform an ancestor and its descendant in the same align/distribute operation")
+         return entries
+ 
+-    def align(self, paths: list[str], *, axis: str, mode: str = "first", value: float | None = None) -> dict[str, float]:
++    def align(self, paths: list[str], *, axis: str, mode: str = "first", value: float | None = None) -> dict[str, str | float]:
+         if axis not in {"x", "y", "z"}:
+             raise ValueError("axis must be x, y, or z")
+         if len(paths) < 2:
+@@ -849,7 +850,7 @@
+             self.translate(entry.path, *delta)
+         return {"axis": axis, "target": target, "count": float(len(entries))}
+ 
+-    def distribute(self, paths: list[str], *, axis: str) -> dict[str, float]:
++    def distribute(self, paths: list[str], *, axis: str) -> dict[str, str | float]:
+         if axis not in {"x", "y", "z"}:
+             raise ValueError("axis must be x, y, or z")
+         if len(paths) < 3:
+diff -ruN '--exclude=__pycache__' '--exclude=*.pyc' cp77wb-v1.0.1-original/cp77wb/cp77wb/semantics.py cp77wb-v1.0.1-fixed/cp77wb/cp77wb/semantics.py
+--- cp77wb-v1.0.1-original/cp77wb/cp77wb/semantics.py	2026-09-15 14:35:47.000000000 +0000
++++ cp77wb-v1.0.1-fixed/cp77wb/cp77wb/semantics.py	2026-09-15 16:10:27.865316636 +0000
+@@ -248,9 +248,11 @@
+                 filters.append(f"lower(s.{column}) LIKE ?")
+                 params.append(f'%"{value.lower()}"%')
+         if category:
+-            filters.append("a.category = ? COLLATE NOCASE"); params.append(category)
++            filters.append("a.category = ? COLLATE NOCASE")
++            params.append(category)
+         if variant:
+-            filters.append("a.variant = ? COLLATE NOCASE"); params.append(variant)
++            filters.append("a.variant = ? COLLATE NOCASE")
++            params.append(variant)
+         where = (" AND " + " AND ".join(filters)) if filters else ""
+         tokens = re.findall(r"[\w]+", query, flags=re.UNICODE)
+         if meta.get("semantic_fts5") == "1" and tokens:
+diff -ruN '--exclude=__pycache__' '--exclude=*.pyc' cp77wb-v1.0.1-original/cp77wb/cp77wb/spatial.py cp77wb-v1.0.1-fixed/cp77wb/cp77wb/spatial.py
+--- cp77wb-v1.0.1-original/cp77wb/cp77wb/spatial.py	2026-09-15 14:31:25.000000000 +0000
++++ cp77wb-v1.0.1-fixed/cp77wb/cp77wb/spatial.py	2026-09-15 16:12:39.031986849 +0000
+@@ -104,7 +104,16 @@
+         size = entry.get("size") or [entry.get("x"), entry.get("y"), entry.get("z")]
+         if asset is None or not isinstance(size, (list, tuple)) or len(size) < 3:
+             raise ValueError("Each bounds entry needs asset/#id and size [x,y,z]")
+-        set_asset_bounds(db_path, int(asset), (float(size[0]), float(size[1]), float(size[2])), source=str(entry.get("source", "import")), confidence=float(entry.get("confidence", 1.0)))
++        size_x, size_y, size_z = size[0], size[1], size[2]
++        if size_x is None or size_y is None or size_z is None:
++            raise ValueError("Bounds size components cannot be null")
++        set_asset_bounds(
++            db_path,
++            int(asset),
++            (float(size_x), float(size_y), float(size_z)),
++            source=str(entry.get("source", "import")),
++            confidence=float(entry.get("confidence", 1.0)),
++        )
+         written += 1
+     return {"database": str(Path(db_path).resolve()), "imported": written}
+ 
+@@ -237,9 +246,11 @@
+         if not include_heuristic and b.confidence < 1.0:
+             continue
+         pos = project.position(entry.path)
+-        rot = spawn.get("rotation") if isinstance(spawn.get("rotation"), dict) else {}
++        rotation_value = spawn.get("rotation")
++        rot = rotation_value if isinstance(rotation_value, dict) else {}
+         yaw = float(rot.get("yaw", 0.0))
+-        scl = spawn.get("scale") if isinstance(spawn.get("scale"), dict) else {}
++        scale_value = spawn.get("scale")
++        scl = scale_value if isinstance(scale_value, dict) else {}
+         scale = (float(scl.get("x",1)),float(scl.get("y",1)),float(scl.get("z",1)))
+         out.append(placement_box(entry.path, pos, yaw, b, path=entry.path, asset_id=asset.id, scale=scale))
+     return out
+diff -ruN '--exclude=__pycache__' '--exclude=*.pyc' cp77wb-v1.0.1-original/cp77wb/cp77wb/structures.py cp77wb-v1.0.1-fixed/cp77wb/cp77wb/structures.py
+--- cp77wb-v1.0.1-original/cp77wb/cp77wb/structures.py	2026-09-15 14:31:25.000000000 +0000
++++ cp77wb-v1.0.1-fixed/cp77wb/cp77wb/structures.py	2026-09-15 16:12:39.031812586 +0000
+@@ -2,7 +2,7 @@
+ 
+ import math
+ from pathlib import Path
+-from typing import Any
++from typing import Any, Sequence
+ 
+ from .assets import resolve_asset
+ from .procedural import sample_polyline
+@@ -14,10 +14,11 @@
+     return project.add_spawnable(parent,module_path=asset.module_path,data_type=asset.data_type,spawn_data=asset.spawn_data,template=asset.template,name=name,position=pos,rotation=(0,0,yaw))
+ 
+ 
+-def generate_fence(project: WorldBuilderProject, parent: str, *, catalog: str | Path, segment_asset: str, points: list[tuple[float,float,float]], spacing: float, post_asset: str | None = None, name: str = "Generated Fence", yaw_offset: float = 0.0) -> dict[str,Any]:
++def generate_fence(project: WorldBuilderProject, parent: str, *, catalog: str | Path, segment_asset: str, points: Sequence[tuple[float,float,float]], spacing: float, post_asset: str | None = None, name: str = "Generated Fence", yaw_offset: float = 0.0) -> dict[str,Any]:
+     group=project.add_group(parent,name=name,position=points[0])
+     samples=sample_polyline(points,spacing=spacing)
+-    segments=[]; posts=[]
++    segments=[]
++    posts=[]
+     for i,(pos,yaw) in enumerate(samples[:-1] if len(samples)>1 else samples):
+         segments.append(_spawn(project,group,catalog,segment_asset,pos,yaw+yaw_offset,"Fence Segment"))
+     if post_asset:
+@@ -26,22 +27,27 @@
+     return {"group":group,"segments":segments,"posts":posts,"samples":len(samples)}
+ 
+ 
+-def generate_road(project: WorldBuilderProject, parent: str, *, catalog: str | Path, tile_asset: str, points: list[tuple[float,float,float]], spacing: float, width: float, edge_asset: str | None = None, name: str = "Generated Road", yaw_offset: float = 0.0) -> dict[str,Any]:
+-    if width <= 0: raise ValueError("width must be > 0")
++def generate_road(project: WorldBuilderProject, parent: str, *, catalog: str | Path, tile_asset: str, points: Sequence[tuple[float,float,float]], spacing: float, width: float, edge_asset: str | None = None, name: str = "Generated Road", yaw_offset: float = 0.0) -> dict[str,Any]:
++    if width <= 0:
++        raise ValueError("width must be > 0")
+     group=project.add_group(parent,name=name,position=points[0])
+     samples=sample_polyline(points,spacing=spacing)
+-    tiles=[]; edges=[]
++    tiles=[]
++    edges=[]
+     for pos,yaw in samples:
+         tiles.append(_spawn(project,group,catalog,tile_asset,pos,yaw+yaw_offset,"Road Tile"))
+         if edge_asset:
+-            a=math.radians(yaw); nx=-math.sin(a); ny=math.cos(a)
+-            left=(pos[0]+nx*width/2,pos[1]+ny*width/2,pos[2]); right=(pos[0]-nx*width/2,pos[1]-ny*width/2,pos[2])
++            a=math.radians(yaw)
++            nx=-math.sin(a)
++            ny=math.cos(a)
++            left=(pos[0]+nx*width/2,pos[1]+ny*width/2,pos[2])
++            right=(pos[0]-nx*width/2,pos[1]-ny*width/2,pos[2])
+             edges.append(_spawn(project,group,catalog,edge_asset,left,yaw+yaw_offset,"Road Edge L"))
+             edges.append(_spawn(project,group,catalog,edge_asset,right,yaw+yaw_offset,"Road Edge R"))
+     return {"group":group,"tiles":tiles,"edges":edges,"samples":len(samples),"width":width}
+ 
+ 
+-def generate_cable_chain(project: WorldBuilderProject, parent: str, *, catalog: str | Path, segment_asset: str, points: list[tuple[float,float,float]], spacing: float, name: str = "Generated Cable", yaw_offset: float = 0.0) -> dict[str,Any]:
++def generate_cable_chain(project: WorldBuilderProject, parent: str, *, catalog: str | Path, segment_asset: str, points: Sequence[tuple[float,float,float]], spacing: float, name: str = "Generated Cable", yaw_offset: float = 0.0) -> dict[str,Any]:
+     group=project.add_group(parent,name=name,position=points[0])
+     samples=sample_polyline(points,spacing=spacing)
+     segments=[]
+diff -ruN '--exclude=__pycache__' '--exclude=*.pyc' cp77wb-v1.0.1-original/cp77wb/cp77wb/worker.py cp77wb-v1.0.1-fixed/cp77wb/cp77wb/worker.py
+--- cp77wb-v1.0.1-original/cp77wb/cp77wb/worker.py	2026-09-15 15:38:28.000000000 +0000
++++ cp77wb-v1.0.1-fixed/cp77wb/cp77wb/worker.py	2026-09-15 16:10:27.865697291 +0000
+@@ -227,7 +227,8 @@
+     with tempfile.TemporaryDirectory(prefix="cp77wb-worker-types-") as td:
+         types_file = Path(td) / "types.json"
+         types_file.write_text(json.dumps(types, ensure_ascii=False), encoding="utf-8")
+-        out = Path(output).resolve(); out.parent.mkdir(parents=True, exist_ok=True)
++        out = Path(output).resolve()
++        out.parent.mkdir(parents=True, exist_ok=True)
+         data = _run_json([str(pf["worker"]), "templates", "--types", str(types_file), "--output", str(out), "--json"], timeout=timeout)
+         if not out.is_file():
+             raise RuntimeError(f"Worker reported success but did not create {out}")
+@@ -258,7 +259,8 @@
+     if not pf.get("ready") or not run:
+         return result
+     for action in actions:
+-        target = Path(action["target"]); target.parent.mkdir(parents=True, exist_ok=True)
++        target = Path(action["target"])
++        target.parent.mkdir(parents=True, exist_ok=True)
+         data = _run_json([str(pf["worker"]), "deserialize", "--input", action["json"], "--output", str(target), "--json"], timeout=timeout)
+         action["workerResult"] = data
+         if not target.is_file():
+@@ -312,7 +314,8 @@
+     proc = subprocess.run(cmd, stdout=subprocess.PIPE, stderr=subprocess.STDOUT, text=True, timeout=timeout, check=False)
+     result.update({"exitCode": proc.returncode, "log": proc.stdout[-12000:]})
+     if log_file:
+-        lp = Path(log_file).expanduser().resolve(); lp.parent.mkdir(parents=True, exist_ok=True)
++        lp = Path(log_file).expanduser().resolve()
++        lp.parent.mkdir(parents=True, exist_ok=True)
+         lp.write_text(proc.stdout or "", encoding="utf-8")
+         result["logFile"] = str(lp)
+     if proc.returncode != 0:
+@@ -323,7 +326,9 @@
+     worker_path = next((p for p in candidates if p.is_file()), None)
+     result["worker"] = str(worker_path) if worker_path else None
+     if not worker_path:
+-        result["ready"] = False; result["reason"] = "publish succeeded but worker executable was not found"; return result
++        result["ready"] = False
++        result["reason"] = "publish succeeded but worker executable was not found"
++        return result
+     result["preflight"] = worker_preflight(worker=worker_path, timeout=30)
+     result["ready"] = bool(result["preflight"].get("ready"))
+     return result
+diff -ruN '--exclude=__pycache__' '--exclude=*.pyc' cp77wb-v1.0.1-original/cp77wb/extras/cp77wb_wkit_worker/Program.cs cp77wb-v1.0.1-fixed/cp77wb/extras/cp77wb_wkit_worker/Program.cs
+--- cp77wb-v1.0.1-original/cp77wb/extras/cp77wb_wkit_worker/Program.cs	2026-09-15 15:38:23.000000000 +0000
++++ cp77wb-v1.0.1-fixed/cp77wb/extras/cp77wb_wkit_worker/Program.cs	2026-09-15 16:12:46.457249450 +0000
+@@ -5,13 +5,8 @@
+ using System.Text.Json;
+ using System.Text.Json.Nodes;
+ 
+-const string Protocol = "cp77wb-wkit-worker/1";
+-const string TemplateSchema = "cp77wb-wkit-templates/1";
+-
+ static void Emit(object value) => Console.WriteLine(JsonSerializer.Serialize(value, new JsonSerializerOptions { WriteIndented = false }));
+ static string? Arg(string[] a, string name) { var i = Array.IndexOf(a, name); return i >= 0 && i + 1 < a.Length ? a[i + 1] : null; }
+-static bool Has(string[] a, string name) => Array.IndexOf(a, name) >= 0;
+-
+ try
+ {
+     var cmd = args.Length == 0 ? "help" : args[0];
+@@ -38,17 +33,20 @@
+         var output = Arg(rest, "--output") ?? throw new ArgumentException("--output required");
+         var result = bridge.DeserializeToCr2w(input, output); Emit(result); return 0;
+     }
+-    Emit(new { protocol = Protocol, commands = new[] { "selftest", "inspect", "templates --types FILE --output FILE", "deserialize --input FILE --output FILE" } });
++    Emit(new { protocol = WkitBridge.Protocol, commands = new[] { "selftest", "inspect", "templates --types FILE --output FILE", "deserialize --input FILE --output FILE" } });
+     return 0;
+ }
+ catch (Exception ex)
+ {
+-    Emit(new { protocol = Protocol, error = ex.Message, detail = ex.ToString() });
++    Emit(new { protocol = WkitBridge.Protocol, error = ex.Message, detail = ex.ToString() });
+     return 1;
+ }
+ 
+ sealed class WkitBridge
+ {
++    public const string Protocol = "cp77wb-wkit-worker/1";
++    public const string TemplateSchema = "cp77wb-wkit-templates/1";
++
+     readonly Assembly red4;
+     readonly List<Type> allTypes;
+     readonly Type? serializerType;
+@@ -238,7 +236,7 @@
+             .Where(m => m.Name.Contains("Write", StringComparison.OrdinalIgnoreCase))
+             .Select(MethodSignature).OrderBy(x => x).ToArray();
+         return new {
+-            protocol = Protocol, apiProfile = ApiProfile(), wolvenKitVersion = WkitVersion,
++            protocol = WkitBridge.Protocol, apiProfile = ApiProfile(), wolvenKitVersion = WkitVersion,
+             dotnetVersion = Environment.Version.ToString(), framework = RuntimeInformation.FrameworkDescription,
+             os = RuntimeInformation.OSDescription, architecture = RuntimeInformation.ProcessArchitecture.ToString(),
+             baseDirectory = AppContext.BaseDirectory,
+diff -ruN '--exclude=__pycache__' '--exclude=*.pyc' cp77wb-v1.0.1-original/cp77wb/static-check.sh cp77wb-v1.0.1-fixed/cp77wb/static-check.sh
+--- cp77wb-v1.0.1-original/cp77wb/static-check.sh	1970-01-01 00:00:00.000000000 +0000
++++ cp77wb-v1.0.1-fixed/cp77wb/static-check.sh	2026-09-15 16:15:15.234491484 +0000
+@@ -0,0 +1,95 @@
++#!/usr/bin/env bash
++set -uo pipefail
++
++ROOT="${1:-.}"
++cd "$ROOT" || exit 2
++fail=0
++missing=0
++
++section() { printf '\n== %s ==\n' "$1"; }
++need() {
++  if ! command -v "$1" >/dev/null 2>&1; then
++    echo "ERROR: required checker '$1' is not installed or not on PATH" >&2
++    missing=1
++    fail=1
++    return 1
++  fi
++}
++
++section 'Python py_compile'
++python3 - <<'PY' || fail=1
++from pathlib import Path
++import py_compile
++files = sorted([*Path('cp77wb').rglob('*.py'), *Path('tests').rglob('*.py')])
++errors = []
++for f in files:
++    try:
++        py_compile.compile(str(f), doraise=True)
++    except Exception as exc:
++        errors.append((f, exc))
++print(f'checked={len(files)} errors={len(errors)}')
++for f, exc in errors:
++    print(f'{f}: {exc}')
++raise SystemExit(1 if errors else 0)
++PY
++
++section 'Ruff'
++if need ruff; then
++  ruff check cp77wb tests || fail=1
++fi
++
++section 'Pyright'
++if need pyright; then
++  pyright cp77wb tests || fail=1
++fi
++
++section 'Python unit tests'
++python3 -m unittest discover -s tests -v || fail=1
++
++section 'Shell syntax'
++find . -type f -name '*.sh' -print -exec bash -n {} \; || fail=1
++find . -type f -name '*.sh' -print -exec sh -n {} \; || fail=1
++
++section 'Lua syntax'
++if command -v texluac >/dev/null 2>&1; then
++  find . -type f -name '*.lua' -print -exec texluac -p {} \; || fail=1
++else
++  echo 'INFO: texluac not found; Lua syntax check skipped'
++fi
++
++section 'JSON/TOML/XML syntax'
++python3 - <<'PY' || fail=1
++from pathlib import Path
++import json
++import tomllib
++import xml.etree.ElementTree as ET
++for f in Path('.').rglob('*.json'):
++    json.loads(f.read_text(encoding='utf-8'))
++for f in Path('.').rglob('*.toml'):
++    with f.open('rb') as stream:
++        tomllib.load(stream)
++for f in Path('.').rglob('*.csproj'):
++    ET.parse(f)
++print('OK')
++PY
++
++section 'C# compile'
++proj='extras/cp77wb_wkit_worker/cp77wb-wkit-worker.csproj'
++if need dotnet; then
++  dotnet build "$proj" -c Release || fail=1
++fi
++
++section 'Merge markers'
++if grep -RInE '^(<<<<<<<|=======|>>>>>>>)' \
++    --include='*.py' --include='*.cs' --include='*.sh' \
++    cp77wb tests extras static-check.sh; then
++  fail=1
++else
++  echo 'none'
++fi
++
++if [ "$missing" -ne 0 ]; then
++  echo
++  echo 'One or more REQUIRED static-analysis tools were missing. This run is NOT a complete validation.' >&2
++fi
++exit "$fail"
+diff -ruN '--exclude=__pycache__' '--exclude=*.pyc' cp77wb-v1.0.1-original/cp77wb/tests/test_mcp.py cp77wb-v1.0.1-fixed/cp77wb/tests/test_mcp.py
+--- cp77wb-v1.0.1-original/cp77wb/tests/test_mcp.py	2026-09-15 15:37:39.000000000 +0000
++++ cp77wb-v1.0.1-fixed/cp77wb/tests/test_mcp.py	2026-09-15 16:12:39.032033650 +0000
+@@ -15,8 +15,10 @@
+             "jsonrpc": "2.0", "id": 1, "method": "initialize",
+             "params": {"protocolVersion": "2025-11-25", "capabilities": {}, "clientInfo": {"name": "test", "version": "1"}},
+         })
++        assert response is not None
+         self.assertEqual(response["result"]["protocolVersion"], "2025-11-25")
+         listing = handle_message({"jsonrpc": "2.0", "id": 2, "method": "tools/list", "params": {}})
++        assert listing is not None
+         names = {tool["name"] for tool in listing["result"]["tools"]}
+         self.assertIn("wb_array", names)
+         self.assertIn("wb_validate", names)
+@@ -26,6 +28,7 @@
+             "jsonrpc": "2.0", "id": 1, "method": "server/discover",
+             "params": {"_meta": {"io.modelcontextprotocol/protocolVersion": MODERN_PROTOCOL}},
+         })
++        assert response is not None
+         self.assertIn(MODERN_PROTOCOL, response["result"]["supportedVersions"])
+         self.assertEqual(response["result"]["resultType"], "complete")
+         self.assertIn("io.modelcontextprotocol/serverInfo", response["result"]["_meta"])
+@@ -46,6 +49,7 @@
+             "jsonrpc": "2.0", "id": 7, "method": "tools/call",
+             "params": {"name": "wb_get", "arguments": {"file": str(FIXTURE)}, "_meta": {"io.modelcontextprotocol/protocolVersion": MODERN_PROTOCOL}},
+         })
++        assert response is not None
+         self.assertFalse(response["result"]["isError"])
+         self.assertEqual(response["result"]["resultType"], "complete")
+         payload = json.loads(response["result"]["content"][0]["text"])
+diff -ruN '--exclude=__pycache__' '--exclude=*.pyc' cp77wb-v1.0.1-original/cp77wb/tests/test_project.py cp77wb-v1.0.1-fixed/cp77wb/tests/test_project.py
+--- cp77wb-v1.0.1-original/cp77wb/tests/test_project.py	2026-09-15 15:37:39.000000000 +0000
++++ cp77wb-v1.0.1-fixed/cp77wb/tests/test_project.py	2026-09-15 16:11:32.746650304 +0000
+@@ -1,7 +1,5 @@
+ from __future__ import annotations
+ 
+-import copy
+-import json
+ import unittest
+ from pathlib import Path
+ 
+diff -ruN '--exclude=__pycache__' '--exclude=*.pyc' cp77wb-v1.0.1-original/cp77wb/tests/test_v03.py cp77wb-v1.0.1-fixed/cp77wb/tests/test_v03.py
+--- cp77wb-v1.0.1-original/cp77wb/tests/test_v03.py	2026-09-15 15:37:39.000000000 +0000
++++ cp77wb-v1.0.1-fixed/cp77wb/tests/test_v03.py	2026-09-15 16:12:39.032090466 +0000
+@@ -1,7 +1,6 @@
+ from __future__ import annotations
+ 
+ import json
+-import shutil
+ import tempfile
+ import threading
+ import time
+@@ -64,6 +63,7 @@
+             self.assertEqual(exact.id, results[0].id)
+             light = search_catalog(db, "point default", limit=5)[0]
+             self.assertEqual(light.source_kind, "template")
++            assert light.template is not None
+             self.assertEqual(light.template["intensity"], 350)
+ 
+     def test_mcp_asset_search(self):
+diff -ruN '--exclude=__pycache__' '--exclude=*.pyc' cp77wb-v1.0.1-original/cp77wb/tests/test_v06.py cp77wb-v1.0.1-fixed/cp77wb/tests/test_v06.py
+--- cp77wb-v1.0.1-original/cp77wb/tests/test_v06.py	2026-09-15 15:37:39.000000000 +0000
++++ cp77wb-v1.0.1-fixed/cp77wb/tests/test_v06.py	2026-09-15 16:11:32.746787332 +0000
+@@ -1,6 +1,5 @@
+ from __future__ import annotations
+ 
+-import json
+ import tempfile
+ import unittest
+ from pathlib import Path
+@@ -14,7 +13,6 @@
+     generate_corridor,
+     generate_market,
+     generate_room,
+-    load_asset_pool,
+     marker_group_points,
+     place_along_path,
+     polygon_scatter,
+@@ -81,7 +79,8 @@
+ 
+     def test_polygon_scatter_is_deterministic(self):
+         polygon = [(0,0,0),(10,0,0),(10,10,0),(0,10,0)]
+-        p1 = sample_project(); p2 = sample_project()
++        p1 = sample_project()
++        p2 = sample_project()
+         r1 = polygon_scatter(p1, "/Demo/DeviceA", polygon, count=4, seed=2077, random_yaw=True)
+         r2 = polygon_scatter(p2, "/Demo/DeviceA", polygon, count=4, seed=2077, random_yaw=True)
+         self.assertEqual([x["position"] for x in r1["created"]], [x["position"] for x in r2["created"]])
+@@ -92,7 +91,9 @@
+         self.assertEqual(len(result["created"]), 10)
+         for item in result["created"]:
+             pos = item["position"]
+-            dx=(pos["x"]-1)/2; dy=(pos["y"]-2)/3; dz=(pos["z"]-3)/4
++            dx=(pos["x"]-1)/2
++            dy=(pos["y"]-2)/3
++            dz=(pos["z"]-3)/4
+             self.assertLessEqual(dx*dx+dy*dy+dz*dz, 1.000001)
+ 
+     def test_weighted_pool_and_generators_use_real_catalog_records(self):
+diff -ruN '--exclude=__pycache__' '--exclude=*.pyc' cp77wb-v1.0.1-original/cp77wb/tests/test_v07.py cp77wb-v1.0.1-fixed/cp77wb/tests/test_v07.py
+--- cp77wb-v1.0.1-original/cp77wb/tests/test_v07.py	2026-09-15 15:37:39.000000000 +0000
++++ cp77wb-v1.0.1-fixed/cp77wb/tests/test_v07.py	2026-09-15 16:10:27.866144448 +0000
+@@ -121,28 +121,33 @@
+ 
+     def test_semantic_autoselect_is_explicit(self):
+         with tempfile.TemporaryDirectory() as td:
+-            db = mini_catalog(Path(td)); build_semantic_index(db)
++            db = mini_catalog(Path(td))
++            build_semantic_index(db)
+             spec={"schema":"cp77wb-plan/1","name":"Semantic","parent":"/Demo","placements":[{"semanticQuery":"dirty warehouse crate","autoSelect":True,"role":"container","position":[1,2,3]}]}
+             compiled=compile_plan(spec,db)
+             self.assertEqual(len(compiled["operations"]),1)
+             self.assertEqual(compiled["assetSelections"][0]["reason"],"semantic-best-explicit-autoselect")
+             bad={"schema":"cp77wb-plan/1","name":"Bad","parent":"/Demo","placements":[{"semanticQuery":"crate","position":[0,0,0]}]}
+-            with self.assertRaises(ValueError): compile_plan(bad,db)
++            with self.assertRaises(ValueError):
++                compile_plan(bad,db)
+ 
+     def test_preview_and_apply_validate(self):
+         with tempfile.TemporaryDirectory() as td:
+             db = mini_catalog(Path(td))
+             crate = search_catalog(db, "crate", variant="Mesh", limit=1)[0]
+             spec={"schema":"cp77wb-plan/1","name":"Props","parent":"/Demo","placements":[{"asset":f"#{crate.id}","position":[100,100,0]}]}
+-            p=sample_project(); preview=preview_plan(p,spec,db)
++            p=sample_project()
++            preview=preview_plan(p,spec,db)
+             self.assertTrue(preview["valid"])
+-            compiled=compile_plan(spec,db); result=apply_compiled_plan(p,compiled,db)
++            compiled=compile_plan(spec,db)
++            result=apply_compiled_plan(p,compiled,db)
+             self.assertEqual(result["count"],1)
+             self.assertFalse(any(i.severity=="error" for i in validate(p)))
+ 
+     def test_collision_aware_scatter(self):
+         with tempfile.TemporaryDirectory() as td:
+-            db=mini_catalog(Path(td)); crate=search_catalog(db,"crate",variant="Mesh",limit=1)[0]
++            db=mini_catalog(Path(td))
++            crate=search_catalog(db,"crate",variant="Mesh",limit=1)[0]
+             set_asset_bounds(db,crate.id,(1,1,1))
+             spec={"schema":"cp77wb-plan/1","name":"Scatter","parent":"/Demo","scatter":[{"asset":f"#{crate.id}","count":5,"seed":7,"clearance":.2,"region":{"center":[0,0,0],"halfExtents":[5,5,0]}}]}
+             compiled=compile_plan(spec,db)
+@@ -153,7 +158,9 @@
+ class StructuresV07Tests(unittest.TestCase):
+     def test_fence_road_cable_generators(self):
+         with tempfile.TemporaryDirectory() as td:
+-            db=mini_catalog(Path(td)); p=sample_project(); pts=[(0,0,0),(10,0,0)]
++            db=mini_catalog(Path(td))
++            p=sample_project()
++            pts=[(0,0,0),(10,0,0)]
+             fence=search_catalog(db,"street fence",variant="Mesh",limit=1)[0]
+             post=search_catalog(db,"fence post",variant="Mesh",limit=1)[0]
+             road=search_catalog(db,"road tile",variant="Mesh",limit=1)[0]
+@@ -162,7 +169,9 @@
+             fr=generate_fence(p,"/Demo",catalog=db,segment_asset=f"#{fence.id}",post_asset=f"#{post.id}",points=pts,spacing=2,name="Fence")
+             rr=generate_road(p,"/Demo",catalog=db,tile_asset=f"#{road.id}",edge_asset=f"#{edge.id}",points=pts,spacing=2,width=4,name="Road")
+             cr=generate_cable_chain(p,"/Demo",catalog=db,segment_asset=f"#{cable.id}",points=pts,spacing=2,name="Cable")
+-            self.assertTrue(fr["segments"]); self.assertEqual(len(rr["edges"]),2*rr["samples"]); self.assertTrue(cr["segments"])
++            self.assertTrue(fr["segments"])
++            self.assertEqual(len(rr["edges"]),2*rr["samples"])
++            self.assertTrue(cr["segments"])
+ 
+ 
+ class McpV07Tests(unittest.TestCase):
+@@ -174,7 +183,8 @@
+ 
+     def test_mcp_semantic_and_plan_compile(self):
+         with tempfile.TemporaryDirectory() as td:
+-            db=mini_catalog(Path(td)); call_tool("wb_semantic_build",{"database":str(db)})
++            db=mini_catalog(Path(td))
++            call_tool("wb_semantic_build",{"database":str(db)})
+             rows=call_tool("wb_semantic_search",{"database":str(db),"query":"arasaka industrial wall","role":"wall","variant":"Mesh"})
+             self.assertTrue(rows)
+             plan={"schema":"cp77wb-plan/1","name":"One","parent":"/Demo","placements":[{"asset":f"#{rows[0]['id']}","position":[1,2,3]}]}
+diff -ruN '--exclude=__pycache__' '--exclude=*.pyc' cp77wb-v1.0.1-original/cp77wb/tests/test_v08.py cp77wb-v1.0.1-fixed/cp77wb/tests/test_v08.py
+--- cp77wb-v1.0.1-original/cp77wb/tests/test_v08.py	2026-09-15 15:37:39.000000000 +0000
++++ cp77wb-v1.0.1-fixed/cp77wb/tests/test_v08.py	2026-09-15 16:11:32.746854954 +0000
+@@ -1,7 +1,6 @@
+ from __future__ import annotations
+ 
+ import json
+-import os
+ import tempfile
+ import unittest
+ from pathlib import Path
+@@ -59,9 +58,12 @@
+     def test_export_inspection_and_duplicate_noderef(self):
+         with tempfile.TemporaryDirectory() as td:
+             p=write_export(Path(td)/"demo_exported.json")
+-            ok=inspect_export(p); self.assertTrue(ok["valid"]); self.assertEqual(ok["nodes"],2)
++            ok=inspect_export(p)
++            self.assertTrue(ok["valid"])
++            self.assertEqual(ok["nodes"],2)
+             bad=write_export(Path(td)/"bad_exported.json", duplicate_ref=True)
+-            result=inspect_export(bad); self.assertFalse(result["valid"])
++            result=inspect_export(bad)
++            self.assertFalse(result["valid"])
+             self.assertTrue(any(i["code"]=="duplicate-noderef" for i in result["issues"]))
+ 
+     def test_archive_xl_matches_importer_behavior(self):
+@@ -74,20 +76,29 @@
+ 
+     def test_prepare_workspace_and_status(self):
+         with tempfile.TemporaryDirectory() as td:
+-            root=Path(td); exp=write_export(root/"demo_world_exported.json"); wb=root/"entSpawner"; write_wb_importer(wb)
++            root=Path(td)
++            exp=write_export(root/"demo_world_exported.json")
++            wb=root/"entSpawner"
++            write_wb_importer(wb)
+             result=prepare_build_workspace(exp, root/"work", world_builder_root=wb, author="Tester")
+             proj=Path(result["workspace"])
+             self.assertTrue((proj/"demo_world.cpmodproj").is_file())
+             self.assertTrue((proj/"source/raw/demo_world_exported.json").is_file())
+             self.assertIn('demo_world_exported.json', (proj/"automation/import_object_spawner_demo_world.wscript").read_text())
+-            status=build_status(proj); self.assertFalse(status["importComplete"])
++            status=build_status(proj)
++            self.assertFalse(status["importComplete"])
+             for rel in json.loads((proj/".cp77wb-build.json").read_text())["expectedArchiveFiles"]:
+-                out=proj/rel; out.parent.mkdir(parents=True,exist_ok=True); out.write_bytes(b"RED4")
+-            status=build_status(proj); self.assertTrue(status["importComplete"]); self.assertTrue(status["exportUnchanged"])
++                out=proj/rel
++                out.parent.mkdir(parents=True,exist_ok=True)
++                out.write_bytes(b"RED4")
++            status=build_status(proj)
++            self.assertTrue(status["importComplete"])
++            self.assertTrue(status["exportUnchanged"])
+ 
+     def test_backend_scan_describes_native_boundary(self):
+         with tempfile.TemporaryDirectory() as td:
+-            wb=Path(td)/"entSpawner"; write_wb_importer(wb)
++            wb=Path(td)/"entSpawner"
++            write_wb_importer(wb)
+             result=backend_scan(world_builder_root=wb)
+             self.assertFalse(result["capabilities"]["linuxNativeObjectSpawnerConversion"])
+             self.assertIn("CreateInstanceAsJSON", result["scriptApiCalls"])
+@@ -95,31 +106,55 @@
+ 
+     def test_pack_preview_and_fake_cli_run(self):
+         with tempfile.TemporaryDirectory() as td:
+-            root=Path(td); exp=write_export(root/"demo_world_exported.json", devices=False)
+-            res=prepare_build_workspace(exp, root/"work"); proj=Path(res["workspace"])
++            root=Path(td)
++            exp=write_export(root/"demo_world_exported.json", devices=False)
++            res=prepare_build_workspace(exp, root/"work")
++            proj=Path(res["workspace"])
+             for rel in json.loads((proj/".cp77wb-build.json").read_text())["expectedArchiveFiles"]:
+-                out=proj/rel; out.parent.mkdir(parents=True,exist_ok=True); out.write_bytes(b"RED4")
++                out=proj/rel
++                out.parent.mkdir(parents=True,exist_ok=True)
++                out.write_bytes(b"RED4")
+             fake=root/"cp77tools"
+             fake.write_text('#!/bin/sh\nout=""\nwhile [ "$#" -gt 0 ]; do if [ "$1" = "-o" ]; then shift; out="$1"; fi; shift; done\nmkdir -p "$out"\nprintf REDARCHIVE > "$out/archive.archive"\n',encoding="utf-8")
+             fake.chmod(0o755)
+-            preview=build_pack(proj,cli=fake,run=False); self.assertFalse(preview["ran"]); self.assertIn("pack",preview["command"])
+-            ran=build_pack(proj,cli=fake,run=True); self.assertTrue(ran["ran"]); self.assertTrue(Path(ran["archive"]).name=="demo_world.archive")
++            preview=build_pack(proj,cli=fake,run=False)
++            self.assertFalse(preview["ran"])
++            self.assertIn("pack",preview["command"])
++            ran=build_pack(proj,cli=fake,run=True)
++            self.assertTrue(ran["ran"])
++            self.assertTrue(Path(ran["archive"]).name=="demo_world.archive")
+ 
+     def test_package_verify_and_deploy_safety(self):
+         with tempfile.TemporaryDirectory() as td:
+-            root=Path(td); exp=write_export(root/"demo_world_exported.json",devices=False); res=prepare_build_workspace(exp,root/"work",scaffold_tweak=True); proj=Path(res["workspace"])
+-            archive=root/"demo_world.archive"; archive.write_bytes(b"archive")
++            root=Path(td)
++            exp=write_export(root/"demo_world_exported.json",devices=False)
++            res=prepare_build_workspace(exp,root/"work",scaffold_tweak=True)
++            proj=Path(res["workspace"])
++            archive=root/"demo_world.archive"
++            archive.write_bytes(b"archive")
+             pkg=build_package(proj,archive=archive,output=root/"dist",zip_output=root/"demo.zip")
+-            self.assertTrue(pkg["ready"]); self.assertTrue((root/"dist/archive/pc/mod/demo_world.archive").is_file()); self.assertTrue((root/"dist/archive/pc/mod/demo_world.xl").is_file())
+-            self.assertTrue((root/"dist/r6/tweaks/demo_world.yaml").is_file()); self.assertTrue((root/"demo.zip").is_file())
+-            verify=verify_package(root/"dist"); self.assertTrue(verify["valid"])
+-            game=root/"game"; game.mkdir()
+-            preview=deploy_layout(root/"dist",game,apply=False); self.assertFalse(preview["apply"]); self.assertFalse((game/"archive/pc/mod/demo_world.archive").exists())
+-            deploy_layout(root/"dist",game,apply=True); self.assertTrue((game/"archive/pc/mod/demo_world.archive").is_file())
++            self.assertTrue(pkg["ready"])
++            self.assertTrue((root/"dist/archive/pc/mod/demo_world.archive").is_file())
++            self.assertTrue((root/"dist/archive/pc/mod/demo_world.xl").is_file())
++            self.assertTrue((root/"dist/r6/tweaks/demo_world.yaml").is_file())
++            self.assertTrue((root/"demo.zip").is_file())
++            verify=verify_package(root/"dist")
++            self.assertTrue(verify["valid"])
++            game=root/"game"
++            game.mkdir()
++            preview=deploy_layout(root/"dist",game,apply=False)
++            self.assertFalse(preview["apply"])
++            self.assertFalse((game/"archive/pc/mod/demo_world.archive").exists())
++            deploy_layout(root/"dist",game,apply=True)
++            self.assertTrue((game/"archive/pc/mod/demo_world.archive").is_file())
+             (game/"archive/pc/mod/demo_world.archive").write_bytes(b"other")
+-            with self.assertRaises(FileExistsError): deploy_layout(root/"dist",game,apply=True,overwrite=False)
+-            done=deploy_layout(root/"dist",game,apply=True,overwrite=True); self.assertTrue(done["backup"])
+-            doctor=build_doctor(root/"dist",game_root=game); self.assertTrue(doctor["package"]["valid"]); self.assertIn(doctor["status"], {"ok","review"})
++            with self.assertRaises(FileExistsError):
++                deploy_layout(root/"dist",game,apply=True,overwrite=False)
++            done=deploy_layout(root/"dist",game,apply=True,overwrite=True)
++            self.assertTrue(done["backup"])
++            doctor=build_doctor(root/"dist",game_root=game)
++            self.assertTrue(doctor["package"]["valid"])
++            self.assertIn(doctor["status"], {"ok","review"})
+ 
+ 
+ class McpV08Tests(unittest.TestCase):
+@@ -131,11 +166,15 @@
+ 
+     def test_mcp_prepare_defaults_to_preview(self):
+         with tempfile.TemporaryDirectory() as td:
+-            root=Path(td); exp=write_export(root/"demo_world_exported.json")
++            root=Path(td)
++            exp=write_export(root/"demo_world_exported.json")
+             result=call_tool("wb_build_prepare",{"export_file":str(exp),"workspace":str(root/"work")})
+-            self.assertFalse(result["written"]); self.assertFalse((root/"work/demo_world").exists())
++            self.assertFalse(result["written"])
++            self.assertFalse((root/"work/demo_world").exists())
+             result=call_tool("wb_build_prepare",{"export_file":str(exp),"workspace":str(root/"work"),"write":True})
+-            self.assertTrue(result["written"]); self.assertTrue((root/"work/demo_world/.cp77wb-build.json").is_file())
++            self.assertTrue(result["written"])
++            self.assertTrue((root/"work/demo_world/.cp77wb-build.json").is_file())
+ 
+ 
+-if __name__ == "__main__": unittest.main()
++if __name__ == "__main__":
++    unittest.main()
+diff -ruN '--exclude=__pycache__' '--exclude=*.pyc' cp77wb-v1.0.1-original/cp77wb/tests/test_v09.py cp77wb-v1.0.1-fixed/cp77wb/tests/test_v09.py
+--- cp77wb-v1.0.1-original/cp77wb/tests/test_v09.py	2026-09-15 15:39:38.000000000 +0000
++++ cp77wb-v1.0.1-fixed/cp77wb/tests/test_v09.py	2026-09-15 16:10:27.867052701 +0000
+@@ -71,7 +71,9 @@
+ 
+     def test_template_plan_and_coverage(self):
+         with tempfile.TemporaryDirectory() as td:
+-            root = Path(td); exp = write_export(root/"demo_world_exported.json"); bundle = write_bundle(root/"templates.json")
++            root = Path(td)
++            exp = write_export(root/"demo_world_exported.json")
++            bundle = write_bundle(root/"templates.json")
+             required = required_template_types(exp)
+             self.assertIn("worldStaticMeshNode", required)
+             self.assertIn("worldStreamingSector", required)
+@@ -85,7 +87,9 @@
+ 
+     def test_native_json_reproduces_importer_shape(self):
+         with tempfile.TemporaryDirectory() as td:
+-            root = Path(td); exp = write_export(root/"demo_world_exported.json"); bundle = write_bundle(root/"templates.json")
++            root = Path(td)
++            exp = write_export(root/"demo_world_exported.json")
++            bundle = write_bundle(root/"templates.json")
+             result = prepare_native_json(exp, bundle, root/"native-json")
+             self.assertEqual(result["count"], 4)
+             sector = json.loads((root/"native-json/demo_world/sectors/sector_a.streamingsector.json").read_text())
+@@ -98,17 +102,28 @@
+ 
+     def test_cli_preflight_convert_and_verify(self):
+         with tempfile.TemporaryDirectory() as td:
+-            root=Path(td); exp=write_export(root/"demo_world_exported.json"); bundle=write_bundle(root/"templates.json"); cli=write_fake_cli(root/"cp77tools")
++            root=Path(td)
++            exp=write_export(root/"demo_world_exported.json")
++            bundle=write_bundle(root/"templates.json")
++            cli=write_fake_cli(root/"cp77tools")
+             prep=prepare_native_json(exp,bundle,root/"json")
+-            pf=native_preflight(cli=cli); self.assertTrue(pf["ready"]); self.assertTrue(pf["convertDeserialize"])
+-            preview=native_convert(root/"json",root/"archive",cli=cli,run=False); self.assertFalse(preview["run"])
+-            done=native_convert(root/"json",root/"archive",cli=cli,run=True); self.assertTrue(done["verification"]["valid"])
++            pf=native_preflight(cli=cli)
++            self.assertTrue(pf["ready"])
++            self.assertTrue(pf["convertDeserialize"])
++            preview=native_convert(root/"json",root/"archive",cli=cli,run=False)
++            self.assertFalse(preview["run"])
++            done=native_convert(root/"json",root/"archive",cli=cli,run=True)
++            self.assertTrue(done["verification"]["valid"])
+             self.assertTrue((root/"archive/demo_world/all.streamingblock").read_bytes().startswith(b"CR2W"))
+-            verify=verify_native_outputs(root/"archive",[x["target"] for x in prep["files"]]); self.assertTrue(verify["valid"])
++            verify=verify_native_outputs(root/"archive",[x["target"] for x in prep["files"]])
++            self.assertTrue(verify["valid"])
+ 
+     def test_native_import_and_backend_scan(self):
+         with tempfile.TemporaryDirectory() as td:
+-            root=Path(td); exp=write_export(root/"demo_world_exported.json",devices=False); bundle=write_bundle(root/"templates.json"); cli=write_fake_cli(root/"cp77tools")
++            root=Path(td)
++            exp=write_export(root/"demo_world_exported.json",devices=False)
++            bundle=write_bundle(root/"templates.json")
++            cli=write_fake_cli(root/"cp77tools")
+             done=native_import(exp,bundle,root/"archive",cli=cli,run=True)
+             self.assertTrue(done["native"])
+             scan=backend_scan(cli=cli)
+@@ -118,7 +133,10 @@
+ 
+     def test_build_prepare_includes_capture_script(self):
+         with tempfile.TemporaryDirectory() as td:
+-            root=Path(td); exp=write_export(root/"demo_world_exported.json"); wb=root/"entSpawner"; write_wb_importer(wb)
++            root=Path(td)
++            exp=write_export(root/"demo_world_exported.json")
++            wb=root/"entSpawner"
++            write_wb_importer(wb)
+             result=prepare_build_workspace(exp,root/"work",world_builder_root=wb)
+             capture=Path(result["nativeTemplateCapture"])
+             self.assertTrue(capture.is_file())
+@@ -137,21 +155,30 @@
+ 
+     def test_native_json_mcp_is_preview_by_default(self):
+         with tempfile.TemporaryDirectory() as td:
+-            root=Path(td); exp=write_export(root/"demo_world_exported.json"); bundle=write_bundle(root/"templates.json")
++            root=Path(td)
++            exp=write_export(root/"demo_world_exported.json")
++            bundle=write_bundle(root/"templates.json")
+             result=call_tool("wb_native_json",{"export_file":str(exp),"bundle":str(bundle),"output":str(root/"native")})
+-            self.assertFalse(result["written"]); self.assertFalse((root/"native").exists())
++            self.assertFalse(result["written"])
++            self.assertFalse((root/"native").exists())
+             result=call_tool("wb_native_json",{"export_file":str(exp),"bundle":str(bundle),"output":str(root/"native"),"write":True})
+-            self.assertTrue(result["written"]); self.assertTrue((root/"native/.cp77wb-native-json.json").is_file())
++            self.assertTrue(result["written"])
++            self.assertTrue((root/"native/.cp77wb-native-json.json").is_file())
+ 
+     def test_build_native_import_populates_workspace(self):
+         with tempfile.TemporaryDirectory() as td:
+-            root=Path(td); exp=write_export(root/"demo_world_exported.json",devices=False); bundle=write_bundle(root/"templates.json"); cli=write_fake_cli(root/"cp77tools")
++            root=Path(td)
++            exp=write_export(root/"demo_world_exported.json",devices=False)
++            bundle=write_bundle(root/"templates.json")
++            cli=write_fake_cli(root/"cp77tools")
+             prep=prepare_build_workspace(exp,root/"work")
+             from cp77wb.build import build_native_import
+             preview=build_native_import(prep["workspace"],bundle,cli=cli,run=False)
+-            self.assertTrue(preview["ready"]); self.assertFalse((Path(prep["workspace"])/"source/archive/demo_world/all.streamingblock").exists())
++            self.assertTrue(preview["ready"])
++            self.assertFalse((Path(prep["workspace"])/"source/archive/demo_world/all.streamingblock").exists())
+             done=build_native_import(prep["workspace"],bundle,cli=cli,run=True)
+-            self.assertTrue(done["ready"]); self.assertTrue(done["status"]["importComplete"])
++            self.assertTrue(done["ready"])
++            self.assertTrue(done["status"]["importComplete"])
+             manifest=json.loads((Path(prep["workspace"])/".cp77wb-build.json").read_text())
+             self.assertEqual(manifest["lastImportBackend"],"template-json+wkit-convert-deserialize")
+ 
+diff -ruN '--exclude=__pycache__' '--exclude=*.pyc' cp77wb-v1.0.1-original/cp77wb/tests/test_v10.py cp77wb-v1.0.1-fixed/cp77wb/tests/test_v10.py
+--- cp77wb-v1.0.1-original/cp77wb/tests/test_v10.py	2026-09-15 15:39:13.000000000 +0000
++++ cp77wb-v1.0.1-fixed/cp77wb/tests/test_v10.py	2026-09-15 16:10:27.867480047 +0000
+@@ -50,59 +50,84 @@
+         with tempfile.TemporaryDirectory() as td:
+             worker=write_fake_worker(Path(td)/"cp77wb-wkit-worker")
+             pf=worker_preflight(worker=worker)
+-            self.assertTrue(pf["ready"]); self.assertTrue(pf["authoritativeNative"])
++            self.assertTrue(pf["ready"])
++            self.assertTrue(pf["authoritativeNative"])
+             self.assertEqual(pf["wolvenKitVersion"],"9.0.1")
+ 
+     def test_worker_protocol_mismatch_is_rejected(self):
+         with tempfile.TemporaryDirectory() as td:
+             worker=write_fake_worker(Path(td)/"worker",protocol="wrong/1")
+             pf=worker_preflight(worker=worker)
+-            self.assertFalse(pf["ready"]); self.assertIn("protocol mismatch",pf["reason"])
++            self.assertFalse(pf["ready"])
++            self.assertIn("protocol mismatch",pf["reason"])
+ 
+     def test_worker_bundle_eliminates_wscript_capture(self):
+         with tempfile.TemporaryDirectory() as td:
+-            root=Path(td); exp=write_export(root/"demo_world_exported.json"); worker=write_fake_worker(root/"worker")
++            root=Path(td)
++            exp=write_export(root/"demo_world_exported.json")
++            worker=write_fake_worker(root/"worker")
+             preview=worker_create_bundle(exp,root/"bundle.json",worker=worker,run=False)
+-            self.assertTrue(preview["ready"]); self.assertFalse((root/"bundle.json").exists())
++            self.assertTrue(preview["ready"])
++            self.assertFalse((root/"bundle.json").exists())
+             done=worker_create_bundle(exp,root/"bundle.json",worker=worker,run=True)
+             self.assertTrue(done["created"])
+-            data=json.loads((root/"bundle.json").read_text()); self.assertIn("worldStaticMeshNode",data["types"])
++            data=json.loads((root/"bundle.json").read_text())
++            self.assertIn("worldStaticMeshNode",data["types"])
+ 
+     def test_worker_import_produces_verified_cr2w(self):
+         with tempfile.TemporaryDirectory() as td:
+-            root=Path(td); exp=write_export(root/"demo_world_exported.json"); worker=write_fake_worker(root/"worker")
++            root=Path(td)
++            exp=write_export(root/"demo_world_exported.json")
++            worker=write_fake_worker(root/"worker")
+             preview=worker_import(exp,root/"archive",worker=worker,run=False)
+-            self.assertTrue(preview["ready"]); self.assertFalse((root/"archive").exists())
++            self.assertTrue(preview["ready"])
++            self.assertFalse((root/"archive").exists())
+             done=worker_import(exp,root/"archive",worker=worker,run=True)
+-            self.assertTrue(done["native"]); self.assertTrue(done["authoritativeNative"])
++            self.assertTrue(done["native"])
++            self.assertTrue(done["authoritativeNative"])
+             self.assertTrue((root/"archive/demo_world/all.streamingblock").read_bytes().startswith(b"CR2W"))
+ 
+     def test_build_worker_import_updates_manifest(self):
+         with tempfile.TemporaryDirectory() as td:
+-            root=Path(td); exp=write_export(root/"demo_world_exported.json",devices=False); worker=write_fake_worker(root/"worker")
++            root=Path(td)
++            exp=write_export(root/"demo_world_exported.json",devices=False)
++            worker=write_fake_worker(root/"worker")
+             prep=prepare_build_workspace(exp,root/"work")
+-            preview=build_worker_import(prep["workspace"],worker=worker,run=False); self.assertTrue(preview["ready"])
+-            done=build_worker_import(prep["workspace"],worker=worker,run=True); self.assertTrue(done["ready"])
++            preview=build_worker_import(prep["workspace"],worker=worker,run=False)
++            self.assertTrue(preview["ready"])
++            done=build_worker_import(prep["workspace"],worker=worker,run=True)
++            self.assertTrue(done["ready"])
+             manifest=json.loads((Path(prep["workspace"])/".cp77wb-build.json").read_text())
+-            self.assertEqual(manifest["cp77wbVersion"],"1.0.1"); self.assertEqual(manifest["lastImportBackend"],"dotnet-wolvenkit-worker")
++            self.assertEqual(manifest["cp77wbVersion"],"1.0.1")
++            self.assertEqual(manifest["lastImportBackend"],"dotnet-wolvenkit-worker")
+ 
+     def test_worker_build_preview_is_safe(self):
+         with tempfile.TemporaryDirectory() as td:
+-            root=Path(td); fake_dotnet=root/"dotnet"; fake_dotnet.write_text("#!/bin/sh\nexit 0\n"); fake_dotnet.chmod(0o755)
++            root=Path(td)
++            fake_dotnet=root/"dotnet"
++            fake_dotnet.write_text("#!/bin/sh\nexit 0\n")
++            fake_dotnet.chmod(0o755)
+             project=Path(__file__).resolve().parents[1]/"extras/cp77wb_wkit_worker/cp77wb-wkit-worker.csproj"
+             result=build_worker(source=project,output=root/"publish",dotnet=fake_dotnet,run=False)
+-            self.assertTrue(result["ready"]); self.assertFalse((root/"publish").exists()); self.assertIn("publish",result["command"])
++            self.assertTrue(result["ready"])
++            self.assertFalse((root/"publish").exists())
++            self.assertIn("publish",result["command"])
+ 
+ 
+ class McpV10Tests(unittest.TestCase):
+     def test_v10_worker_tools_and_preview(self):
+         names={t["name"] for t in TOOLS}
+         expected={"wb_worker_build","wb_worker_preflight","wb_worker_bundle","wb_worker_import","wb_build_worker_import"}
+-        self.assertTrue(expected <= names); self.assertEqual(len(names),94)
++        self.assertTrue(expected <= names)
++        self.assertEqual(len(names),94)
+         with tempfile.TemporaryDirectory() as td:
+-            root=Path(td); exp=write_export(root/"demo_world_exported.json"); worker=write_fake_worker(root/"worker")
++            root=Path(td)
++            exp=write_export(root/"demo_world_exported.json")
++            worker=write_fake_worker(root/"worker")
+             result=call_tool("wb_worker_bundle",{"export_file":str(exp),"output":str(root/"bundle.json"),"worker":str(worker)})
+-            self.assertTrue(result["ready"]); self.assertFalse((root/"bundle.json").exists())
++            self.assertTrue(result["ready"])
++            self.assertFalse((root/"bundle.json").exists())
+ 
+ 
+-if __name__ == "__main__": unittest.main()
++if __name__ == "__main__":
++    unittest.main()

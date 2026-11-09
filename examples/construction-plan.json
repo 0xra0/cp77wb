@@ -1,0 +1,19 @@
+{
+  "schema": "cp77wb-plan/1",
+  "name": "Generated Warehouse Office",
+  "parent": "/Demo",
+  "origin": [0, 0, 0],
+  "room": {
+    "width": 12,
+    "depth": 8,
+    "wallStep": 2,
+    "wall": {"asset": "#40238"},
+    "floor": {"asset": "#60952"},
+    "floorStep": 2,
+    "doors": [
+      {"side": "north", "offset": 0, "width": 2.2, "asset": "#62873", "name": "Main Door"}
+    ]
+  },
+  "placements": [],
+  "scatter": []
+}

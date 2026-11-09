@@ -1,0 +1,12 @@
+--- /tmp/tmp.WLZmkIFpIT/orig/cp77wb/cp77wb/planner.py	2026-09-15 16:12:39.000000000 +0000
++++ /mnt/data/cp77wb-v1.0.1-fixed/cp77wb/cp77wb/planner.py	2026-09-15 16:24:50.915465405 +0000
+@@ -184,7 +184,8 @@
+         clearance=float(scat.get("clearance",0.2))
+         if count < 1:
+             raise ValueError("scatter count must be >= 1")
+-        region = scat.get("region") if isinstance(scat.get("region"), dict) else {}
++        region_value = scat.get("region")
++        region: dict[str, Any] = region_value if isinstance(region_value, dict) else {}
+         center=_point(region.get("center"), (0,0,0))
+         half=_point(region.get("halfExtents"), (2,2,0))
+         center=(origin[0]+center[0],origin[1]+center[1],origin[2]+center[2])

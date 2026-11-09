@@ -1,0 +1,20 @@
+[build-system]
+requires = ["setuptools"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "cp77wb"
+version = "1.0.1"
+description = "External CLI/tooling layer for Cyberpunk 2077 World Builder projects"
+readme = "README.md"
+requires-python = ">=3.11"
+license = {text = "MIT"}
+authors = [{name = "cp77wb contributors"}]
+dependencies = []
+
+[project.scripts]
+cp77wb = "cp77wb.cli:main"
+cp77wb-mcp = "cp77wb.mcp_server:main"
+
+[tool.setuptools]
+packages = ["cp77wb"]

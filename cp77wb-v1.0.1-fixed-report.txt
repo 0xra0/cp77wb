@@ -1,0 +1,29 @@
+cp77wb v1.0.1 fixed validation report
+
+Source of fixes: user-provided real static-analysis log output(3).log
+
+Reported failures addressed:
+- Ruff: 476 findings (E702 415, E701 47, F401 13, F841 1)
+- Pyright: 54 errors
+- C# dotnet build: 5 CS8801 errors + 2 related unused-symbol warnings
+
+Validation of exact cp77wb-v1.0.1-fixed.zip in this environment:
+- Python py_compile: 41/41 OK
+- Python unit tests: 107/107 OK
+- Ruff E701/E702 structural equivalent scan: 0 semicolon statement separators, 0 one-line compound suites
+- Ruff F401/F841 reported items: removed from source
+- bash -n: all shell scripts OK
+- sh -n: all shell scripts OK
+- Lua texluac -p: OK
+- JSON/TOML/XML parse: OK
+- clean install: OK
+- cp77wb --version: 1.0.1
+- ZIP integrity: OK
+- C# CS8801 source-scope fix: present; top-level Protocol/TemplateSchema moved into WkitBridge and unused Has removed
+
+Not executable in this container:
+- real Ruff binary
+- real Pyright binary
+- real dotnet compiler
+
+The bundled static-check.sh now treats missing ruff, pyright, or dotnet as a validation failure and runs unit tests with explicit -s tests discovery.
