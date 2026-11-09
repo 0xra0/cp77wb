@@ -57,6 +57,9 @@ extras/cp77wb_wkit_worker/publish/
 
 # Release archives
 *.zip
+*.tar.gz
+*.tar.bz2
+*.tar.xz
 
 # Preserve root launcher scripts
 !bin/cp77wb
